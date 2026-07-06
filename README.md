@@ -48,6 +48,8 @@ The reasoning lives in the repo, not in anyone's head:
   - [0005](./docs/adr/0005-tiered-rollup-storage.md) — tiered rollup storage
   - [0006](./docs/adr/0006-ebpf-socket-hooks-kernel-counts-pid.md) — eBPF socket-layer hooks; kernel counts per-PID, userspace resolves Identity
   - [0007](./docs/adr/0007-pid-identity-enrichment-dead-pid-race.md) — PID→Identity enrichment and the dead-PID race
+  - [0008](./docs/adr/0008-ipc-framed-protobuf-typed-rpc-streaming.md) — IPC query protocol: framed protobuf, typed RPC verbs, streaming
+  - [0009](./docs/adr/0009-global-collection-uid-scoped-viewing.md) — global collection, uid-scoped viewing via SO_PEERCRED
 
 ## Scope, deliberately
 
