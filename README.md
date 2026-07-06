@@ -76,6 +76,12 @@ for the reasoning — including why the eBPF program object itself carries a
 `Dual MIT/GPL` license string (the BPF verifier requires a GPL-compatible license
 to call the `gpl_only` tracing helpers procflow needs).
 
+The license places no restriction on who may use procflow. Separately — and
+**non-bindingly** — [`ETHICS.md`](./ETHICS.md) records the author's request that
+procflow not be used for military purposes or government mass surveillance
+(ordinary and dual-use, consumer-serving applications are fine). It is a request,
+not a license term.
+
 ### Contribution
 
 Unless you explicitly state otherwise, any contribution intentionally submitted

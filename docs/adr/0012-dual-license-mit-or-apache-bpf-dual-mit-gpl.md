@@ -8,6 +8,13 @@ stay license-compatible with the whole dependency tree (aya, prost, DuckDB, clap
 tokio — all `MIT OR Apache-2.0`), and handle a procflow-specific constraint: its
 eBPF programs call kernel helpers that are `gpl_only`.
 
+There is also an **ethical dimension**: procflow attributes traffic to individual
+processes and people, so it is a capable monitoring tool that could be turned
+toward surveillance. The author would prefer it not be used for military purposes
+or government mass surveillance — while accepting ordinary and dual-use
+(consumer-serving) applications. The question was how to express that without
+crippling adoption.
+
 ## Decision
 
 - **Userspace (daemon + CLI + shared crates): dual-licensed `MIT OR Apache-2.0`**,
@@ -22,6 +29,11 @@ eBPF programs call kernel helpers that are `gpl_only`.
   under MIT. This is a **per-object license string**, independent of the crate's
   `MIT OR Apache-2.0` — it does **not** make the userspace GPL.
 - Copyright line: `Copyright (c) 2026 thelooter`.
+- **Express the ethical preference as a non-binding `ETHICS.md`**, not a license
+  term: a request that procflow not be used for military purposes or government
+  mass surveillance, explicitly stating it is *not* a condition and that ordinary
+  and dual-use (consumer-serving) applications are fine. This keeps procflow fully
+  open source while stating the author's position plainly.
 
 ## Rationale
 
@@ -33,9 +45,9 @@ eBPF programs call kernel helpers that are `gpl_only`.
 - **Why not a use-restricting / ethical-source license** (military/government
   exclusion was considered): any such clause fails the OSI definition (#5/#6) and
   FSF freedom 0 — it would bar distro inclusion and most corporate adoption, and
-  is effectively unenforceable by a solo author. An ethical stance, if desired, is
-  better expressed as a **non-binding request** in the README than as an
-  unenforceable license term. (Not adopted for now.)
+  is effectively unenforceable by a solo author. The ethical stance is instead
+  expressed as a **non-binding request** in [`ETHICS.md`](../../ETHICS.md) — same
+  message, none of the adoption cost.
 - **Why not MPL-2.0:** its file-level copyleft is the only thing it adds over
   MIT/Apache and would only introduce OSPO-review friction with no benefit
   procflow needs; and it cannot be offered as a *third OR arm* (a licensee would
