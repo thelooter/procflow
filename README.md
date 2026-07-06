@@ -52,6 +52,7 @@ The reasoning lives in the repo, not in anyone's head:
   - [0009](./docs/adr/0009-global-collection-uid-scoped-viewing.md) — global collection, uid-scoped viewing via SO_PEERCRED
   - [0010](./docs/adr/0010-cli-surface-subcommands-map-to-ipc-verbs.md) — CLI surface: subcommands map to IPC verbs
   - [0011](./docs/adr/0011-daemon-packaging-least-privilege-systemd.md) — daemon packaging: least-privilege caps, systemd, FHS layout
+  - [0012](./docs/adr/0012-dual-license-mit-or-apache-bpf-dual-mit-gpl.md) — dual MIT OR Apache-2.0; eBPF object under Dual MIT/GPL
 
 ## Scope, deliberately
 
@@ -63,4 +64,20 @@ expected, not a bug.
 
 ## License
 
-Not yet chosen.
+Licensed under either of
+
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE) or
+  <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([`LICENSE-MIT`](./LICENSE-MIT) or
+  <http://opensource.org/licenses/MIT>)
+
+at your option. See [ADR-0012](./docs/adr/0012-dual-license-mit-or-apache-bpf-dual-mit-gpl.md)
+for the reasoning — including why the eBPF program object itself carries a
+`Dual MIT/GPL` license string (the BPF verifier requires a GPL-compatible license
+to call the `gpl_only` tracing helpers procflow needs).
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
