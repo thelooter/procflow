@@ -46,6 +46,8 @@ The reasoning lives in the repo, not in anyone's head:
   - [0003](./docs/adr/0003-local-time-day-month-boundaries.md) — local-time day/month boundaries
   - [0004](./docs/adr/0004-identity-natural-key-normalized-cmdline.md) — Identity keying
   - [0005](./docs/adr/0005-tiered-rollup-storage.md) — tiered rollup storage
+  - [0006](./docs/adr/0006-ebpf-socket-hooks-kernel-counts-pid.md) — eBPF socket-layer hooks; kernel counts per-PID, userspace resolves Identity
+  - [0007](./docs/adr/0007-pid-identity-enrichment-dead-pid-race.md) — PID→Identity enrichment and the dead-PID race
 
 ## Scope, deliberately
 

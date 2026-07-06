@@ -39,6 +39,15 @@ be attributed; consequently totals read slightly *lower* than interface counters
 like vnstat, and that is expected, not a bug.
 _Avoid_: wire bytes, on-wire bytes (a different, unsupported metric)
 
+**Unresolved Identity**:
+A degraded Identity used when a process exited before the daemon could read
+`/proc` to derive its `exe`, `project_root`, and `normalized_cmdline`. Still
+correctly keyed by the kernel-captured `uid`, cgroup, and `comm`, with those
+three fields set to a `<unresolved>` sentinel. Surfaced in views, never silently
+dropped — the honest marker that some short-lived traffic was only coarsely
+attributed.
+_Avoid_: unknown, missing (attribution is partial, not absent)
+
 **Scope**:
 Whether traffic actually left the machine (`external`) or stayed on loopback
 (`loopback`) — local services, dev-server-to-local-DB, IPC over TCP. A stored
