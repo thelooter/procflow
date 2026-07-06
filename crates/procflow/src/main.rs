@@ -1,4 +1,8 @@
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use procflow_ipc::v1::{request, response, Hello, Request, Response};
+use procflow_ipc::{read_msg, write_msg, PROTO_VERSION};
+use std::os::unix::net::UnixStream;
 
 /// Per-process network traffic, tracked over time.
 #[derive(Parser)]
@@ -25,15 +29,41 @@ enum Command {
     Status,
 }
 
-fn main() {
-    let _cli = Cli::parse();
-    // Query layer lands with the daemon's IPC server; until then every verb
-    // reports the same thing rather than pretending (ADR-0010: never a
-    // silent empty result).
-    eprintln!(
-        "procflow: not implemented yet — the daemon and query layer are still being built \
-         (will connect to {})",
-        procflow_ipc::SOCKET_PATH
-    );
-    std::process::exit(1);
+fn main() -> Result<()> {
+    match Cli::parse().command {
+        Command::Status => status(),
+        _ => {
+            // Query layer lands next; report honestly rather than pretending
+            // (ADR-0010: never a silent empty result).
+            eprintln!("procflow: not implemented yet — the query layer is still being built");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// One request over a fresh connection (ADR-0008).
+fn request(body: request::Body) -> Result<Response> {
+    let path = procflow_ipc::socket_path();
+    let mut stream = UnixStream::connect(&path).with_context(|| {
+        format!(
+            "procflow daemon not running (cannot connect to {})",
+            path.display()
+        )
+    })?;
+    write_msg(&mut stream, &Request { proto: PROTO_VERSION, id: 1, body: Some(body) })?;
+    Ok(read_msg(&mut stream)?)
+}
+
+fn status() -> Result<()> {
+    let resp = request(request::Body::Hello(Hello {}))?;
+    match resp.body {
+        Some(response::Body::HelloOk(ok)) => {
+            println!("daemon:   procflowd {}", ok.daemon_version);
+            println!("protocol: v{}..=v{} (client v{})", ok.proto_min, ok.proto_max, PROTO_VERSION);
+            println!("socket:   {}", procflow_ipc::socket_path().display());
+            Ok(())
+        }
+        Some(response::Body::Error(e)) => bail!("daemon error: {} ({})", e.message, e.code),
+        other => bail!("unexpected response: {other:?}"),
+    }
 }

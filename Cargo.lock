@@ -1435,6 +1435,7 @@ dependencies = [
 name = "procflow"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "procflow-ipc",
 ]
