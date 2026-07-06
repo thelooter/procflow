@@ -3,9 +3,24 @@ use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixListener;
 
 fn main() -> Result<()> {
-    // Store: in-memory until the collector lands and there is something to
-    // persist; the real file path + config come with it (ADR-0011).
-    let store = procflowd::store::Store::open_in_memory()?;
+    // PROCFLOW_DB overrides for dev; default is the packaged path (ADR-0011).
+    // In-memory ONLY when explicitly requested (":memory:") — counters are
+    // history, silently losing them on restart would be a lie.
+    let db_path = std::env::var_os("PROCFLOW_DB")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| "/var/lib/procflow/procflow.duckdb".into());
+    let store = if db_path.as_os_str() == ":memory:" {
+        procflowd::store::Store::open_in_memory()?
+    } else {
+        if let Some(dir) = db_path.parent() {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("creating state directory {}", dir.display()))?;
+        }
+        procflowd::store::Store::open(&db_path)
+            .with_context(|| format!("opening store {}", db_path.display()))?
+    };
+    let schema_version = store.schema_version()?;
+    let store = std::sync::Arc::new(std::sync::Mutex::new(store));
     let socket = procflow_ipc::socket_path();
 
     if let Some(dir) = socket.parent() {
@@ -24,7 +39,10 @@ fn main() -> Result<()> {
 
     // eBPF collection is best-effort at this stage: without CAP_BPF +
     // CAP_PERFMON (ADR-0011) the daemon still serves stored history.
-    let _collector = match procflowd::collector::start(std::time::Duration::from_secs(5)) {
+    let _collector = match procflowd::collector::start(
+        store.clone(),
+        std::time::Duration::from_secs(5),
+    ) {
         Ok(handle) => {
             println!("procflowd: eBPF collector attached");
             Some(handle)
@@ -36,9 +54,8 @@ fn main() -> Result<()> {
         }
     };
     println!(
-        "procflowd {} — schema v{}, ipc proto v{}, listening on {}",
+        "procflowd {} — schema v{schema_version}, ipc proto v{}, listening on {}",
         env!("CARGO_PKG_VERSION"),
-        store.schema_version()?,
         procflow_ipc::PROTO_VERSION,
         socket.display(),
     );

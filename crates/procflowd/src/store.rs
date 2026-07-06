@@ -53,6 +53,64 @@ impl Store {
                 r.get(0)
             })?)
     }
+
+    /// Upsert an Identity by its natural key (ADR-0004) and return the
+    /// surrogate id. Display-only attributes are last-seen-wins.
+    pub fn upsert_identity(&self, rec: &crate::enrich::IdentityRecord) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "INSERT INTO identity
+                 (uid, unit_or_cgroup, exe, project_root, normalized_cmdline,
+                  comm, raw_cmdline, username, first_seen, last_seen)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, now(), now())
+             ON CONFLICT (uid, unit_or_cgroup, exe, project_root, normalized_cmdline)
+             DO UPDATE SET
+                 last_seen   = now(),
+                 comm        = excluded.comm,
+                 raw_cmdline = excluded.raw_cmdline,
+                 username    = excluded.username
+             RETURNING id",
+            duckdb::params![
+                rec.uid,
+                rec.unit_or_cgroup,
+                rec.exe,
+                rec.project_root,
+                rec.normalized_cmdline,
+                rec.comm,
+                rec.raw_cmdline,
+                rec.username,
+            ],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Fold one closed minute-bucket delta into the minute tier (ADR-0005).
+    /// `bucket_epoch_s` is the UTC minute start; upsert accumulates so a
+    /// re-flush after partial failure cannot lose data, only re-add it —
+    /// callers must only flush each accumulator entry once.
+    pub fn record_minute(
+        &self,
+        bucket_epoch_s: i64,
+        identity_id: i64,
+        scope: &str,
+        ingress_bytes: u64,
+        egress_bytes: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO traffic_minute (bucket, identity_id, scope, ingress_bytes, egress_bytes)
+             VALUES (make_timestamp(?), ?, ?, ?, ?)
+             ON CONFLICT (bucket, identity_id, scope) DO UPDATE SET
+                 ingress_bytes = traffic_minute.ingress_bytes + excluded.ingress_bytes,
+                 egress_bytes  = traffic_minute.egress_bytes + excluded.egress_bytes",
+            duckdb::params![
+                bucket_epoch_s * 1_000_000, // make_timestamp takes epoch micros
+                identity_id,
+                scope,
+                ingress_bytes,
+                egress_bytes,
+            ],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +189,56 @@ mod tests {
                  VALUES ('2026-07-06 12:00:00', 1, 'lan')"
             )
             .is_err());
+    }
+
+    #[test]
+    fn identity_upsert_returns_stable_id_and_updates_display_fields() {
+        let store = Store::open_in_memory().unwrap();
+        let mut rec = crate::enrich::IdentityRecord {
+            uid: 1000,
+            unit_or_cgroup: "/user.slice/app.slice/dev.scope".into(),
+            exe: "/usr/bin/node".into(),
+            project_root: "/home/x/proj".into(),
+            normalized_cmdline: "npm run dev --port <n>".into(),
+            comm: "node".into(),
+            raw_cmdline: "npm run dev --port 3000".into(),
+            username: Some("x".into()),
+        };
+        let id1 = store.upsert_identity(&rec).unwrap();
+        // Same natural key, different display attrs → same id, attrs updated.
+        rec.raw_cmdline = "npm run dev --port 3001".into();
+        let id2 = store.upsert_identity(&rec).unwrap();
+        assert_eq!(id1, id2);
+        let raw: String = store
+            .conn
+            .query_row("SELECT raw_cmdline FROM identity WHERE id = ?", [id1], |r| r.get(0))
+            .unwrap();
+        assert_eq!(raw, "npm run dev --port 3001");
+        // Different key member → new Identity.
+        rec.normalized_cmdline = "npm run build".into();
+        assert_ne!(store.upsert_identity(&rec).unwrap(), id1);
+    }
+
+    #[test]
+    fn record_minute_accumulates_via_api() {
+        let store = Store::open_in_memory().unwrap();
+        let id = store
+            .upsert_identity(&crate::enrich::fully_unresolved())
+            .unwrap();
+        let bucket = 1_782_000_000 / 60 * 60; // any minute-aligned epoch
+        store.record_minute(bucket, id, "external", 100, 50).unwrap();
+        store.record_minute(bucket, id, "external", 20, 5).unwrap();
+        let (ingress, egress): (u64, u64) = store
+            .conn
+            .query_row(
+                "SELECT ingress_bytes, egress_bytes FROM traffic_minute
+                 WHERE identity_id = ? AND scope = 'external'
+                   AND bucket = make_timestamp(?)",
+                duckdb::params![id, bucket * 1_000_000],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((ingress, egress), (120, 55));
     }
 
     #[test]
