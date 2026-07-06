@@ -9,8 +9,10 @@ recent detail. We need bounded growth with useful recent resolution.
 ## Decision
 
 Store aggregated counters in four **Tiers**, each a table keyed by
-`(time_bucket, identity_id, direction, scope)` with `ingress_bytes` /
-`egress_bytes`:
+`(time_bucket, identity_id, scope)` with an `ingress_bytes` / `egress_bytes`
+column pair (Direction is the column split — stored separately, never summed;
+writing the real DDL showed direction-in-key and two byte columns are mutually
+exclusive, and the column pair halves row count):
 
 | Tier    | Resolution | Default retention |
 |---------|-----------|-------------------|

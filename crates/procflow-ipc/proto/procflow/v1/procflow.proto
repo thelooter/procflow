@@ -1,0 +1,170 @@
+// procflow IPC query protocol (ADR-0008).
+//
+// Wire: SOCK_STREAM Unix socket, u32-LE length-prefixed frames, one encoded
+// message per frame. Client sends one Request per connection; the daemon
+// replies with one Ok (snapshot) or a run of Chunk frames terminated by End
+// (Watch). Additive changes ride protobuf field numbers; `proto` guards
+// breaking changes only.
+syntax = "proto3";
+
+package procflow.v1;
+
+// ---------------------------------------------------------------------------
+// Domain enums (CONTEXT.md). UNSPECIFIED doubles as "default" per verb:
+// direction defaults to both-columns, scope defaults to external (CONTEXT.md).
+// ---------------------------------------------------------------------------
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_INGRESS = 1;
+  DIRECTION_EGRESS = 2;
+}
+
+enum Scope {
+  SCOPE_UNSPECIFIED = 0; // treated as EXTERNAL (default view, CONTEXT.md)
+  SCOPE_EXTERNAL = 1;
+  SCOPE_LOOPBACK = 2;
+  SCOPE_ALL = 3;
+}
+
+enum Tier {
+  TIER_UNSPECIFIED = 0; // daemon auto-picks from the window (ADR-0010)
+  TIER_MINUTE = 1;
+  TIER_HOUR = 2;
+  TIER_DAY = 3;
+  TIER_MONTH = 4;
+}
+
+// Query-time rollup over Identity dimensions (ADR-0004).
+enum GroupBy {
+  GROUP_BY_UNSPECIFIED = 0; // identity
+  GROUP_BY_IDENTITY = 1;
+  GROUP_BY_PROJECT = 2;
+  GROUP_BY_EXE = 3;
+  GROUP_BY_USER = 4;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNSUPPORTED_PROTOCOL = 1;
+  ERROR_CODE_BAD_REQUEST = 2;
+  ERROR_CODE_NOT_FOUND = 3;
+  ERROR_CODE_INTERNAL = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+
+message Request {
+  uint32 proto = 1; // protocol version; bumped on breaking changes only
+  uint64 id = 2;    // correlates responses
+  oneof body {
+    Hello hello = 10;
+    TopIdentities top_identities = 11;
+    Series series = 12;
+    ListIdentities list_identities = 13;
+    Resolve resolve = 14;
+    Watch watch = 15;
+    Cancel cancel = 16;
+  }
+}
+
+message Hello {}
+
+// Half-open [from, to) window, UTC milliseconds since the epoch.
+message TimeRange {
+  int64 from_unix_ms = 1;
+  int64 to_unix_ms = 2;
+}
+
+message TopIdentities {
+  TimeRange range = 1;
+  Tier tier = 2;
+  Scope scope = 3;
+  GroupBy group_by = 4;
+  uint32 limit = 5;
+}
+
+message Series {
+  int64 identity_id = 1;
+  Tier tier = 2;
+  TimeRange range = 3;
+  Scope scope = 4;
+}
+
+message ListIdentities {
+  string filter = 1; // substring match over exe/project_root/comm; empty = all
+}
+
+message Resolve {
+  int64 identity_id = 1;
+}
+
+message Watch {
+  Scope scope = 1;
+  GroupBy group_by = 2;
+  uint32 limit = 3;
+}
+
+message Cancel {
+  uint64 target_id = 1; // id of the in-flight request to cancel
+}
+
+// ---------------------------------------------------------------------------
+// Responses
+// ---------------------------------------------------------------------------
+
+message Response {
+  uint64 id = 1; // echoes Request.id
+  oneof body {
+    Error error = 10;
+    HelloOk hello_ok = 11;
+    Rows ok = 12;    // single snapshot result, then the daemon closes
+    Chunk chunk = 13; // one of a stream (Watch)
+    End end = 14;     // terminates a stream
+  }
+}
+
+message Error {
+  ErrorCode code = 1;
+  string message = 2;
+}
+
+message HelloOk {
+  string daemon_version = 1;
+  uint32 proto_min = 2;
+  uint32 proto_max = 3;
+}
+
+message Identity {
+  int64 id = 1;
+  uint32 uid = 2;
+  string unit_or_cgroup = 3;
+  string exe = 4;
+  string project_root = 5;
+  string normalized_cmdline = 6;
+  string comm = 7;    // display-only (ADR-0004)
+  string username = 8; // display-only (ADR-0004)
+}
+
+// One counter row. Direction is the ingress/egress column split — stored and
+// transported separately, never summed (CONTEXT.md).
+message CounterRow {
+  int64 identity_id = 1;
+  int64 bucket_unix_ms = 2; // UTC bucket start (ADR-0003)
+  Scope scope = 3;
+  uint64 ingress_bytes = 4;
+  uint64 egress_bytes = 5;
+}
+
+message Rows {
+  repeated CounterRow counters = 1;
+  repeated Identity identities = 2; // dimension rows referenced by counters
+}
+
+message Chunk {
+  Rows rows = 1;
+}
+
+message End {}

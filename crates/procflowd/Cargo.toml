@@ -1,0 +1,12 @@
+[package]
+name = "procflowd"
+description = "procflow collector daemon: eBPF collection, DuckDB store, IPC server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = "1.0.103"
+duckdb = { version = "1.10504.0", features = ["bundled"] }
+procflow-ipc = { path = "../procflow-ipc" }

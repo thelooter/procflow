@@ -18,9 +18,17 @@ persisting it so you can answer "what's eaten my bandwidth this week, by app?"
 
 ## Status
 
-🚧 **Design phase — no code yet.** What exists today is the design record:
-a domain glossary and a set of Architecture Decision Records. The implementation
-hasn't started.
+🚧 **Early implementation.** The design record (domain glossary + 12 ADRs) is
+complete; the Cargo workspace is scaffolded and the storage schema exists as a
+real, tested DuckDB migration. The eBPF collector, IPC server, and query layer
+are not built yet.
+
+```
+crates/
+  procflow-ipc/   # shared protocol: .proto + prost-generated types (ADR-0008)
+  procflowd/      # daemon: DuckDB store + migrations; collector/IPC to come
+  procflow/       # CLI skeleton (ADR-0010)
+```
 
 ## How it's meant to work
 

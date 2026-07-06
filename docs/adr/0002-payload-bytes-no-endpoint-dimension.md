@@ -26,9 +26,11 @@ byte counts (to match vnstat / an ISP data cap) and/or a per-remote breakdown
   responsible," not "what is my exact wire utilization." vnstat already nails
   the latter.
 - Dropping the remote dimension collapses the storage key to
-  `(tier, time_bucket, identity, direction, scope)`, eliminates a cardinality
-  bomb, and lets the eBPF collector accumulate simple per-Identity counters
-  instead of tracking per-connection flows. procflow is not a firewall / traffic-
+  `(tier, time_bucket, identity, scope)` — Direction is the
+  `ingress_bytes`/`egress_bytes` column pair on each row, stored separately and
+  never summed — eliminates a cardinality bomb, and lets the eBPF collector
+  accumulate simple per-Identity counters instead of tracking per-connection
+  flows. procflow is not a firewall / traffic-
   analysis system.
 
 ## Deferred
