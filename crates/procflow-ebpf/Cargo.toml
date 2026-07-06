@@ -1,0 +1,30 @@
+# Built separately with nightly (see scripts/build-ebpf.sh): this crate
+# compiles to BPF bytecode and is deliberately NOT a member of the root
+# workspace so `cargo test --workspace` stays stable-toolchain-only.
+[package]
+name = "procflow-ebpf"
+description = "procflow eBPF collector programs (ADR-0006/0007)"
+version = "0.1.0"
+edition = "2021"
+# Crate source is MIT OR Apache-2.0; the compiled object declares
+# SEC("license") = "Dual MIT/GPL" for gpl_only kernel helpers (ADR-0012).
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+aya-ebpf = "0.2"
+procflow-common = { path = "../procflow-common", default-features = false }
+
+[[bin]]
+name = "procflow-ebpf"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+debug = 2 # keep debug info: bpf-linker derives the object's BTF from it
+
+[profile.dev]
+panic = "abort"
+
+[workspace]

@@ -8,5 +8,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow = "1.0.103"
+aya = "0.14.0"
 duckdb = { version = "1.10504.0", features = ["bundled"] }
+procflow-common = { version = "0.1.0", path = "../procflow-common", features = ["user"] }
 procflow-ipc = { path = "../procflow-ipc" }

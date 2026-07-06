@@ -19,15 +19,19 @@ persisting it so you can answer "what's eaten my bandwidth this week, by app?"
 ## Status
 
 🚧 **Early implementation.** The design record (domain glossary + 12 ADRs) is
-complete; the Cargo workspace is scaffolded and the storage schema exists as a
-real, tested DuckDB migration. The eBPF collector, IPC server, and query layer
-are not built yet.
+complete. Working today: the tested DuckDB schema, the IPC server +
+`procflow status` end-to-end, and the eBPF collector programs (compiled and
+loadable; drain loop logs counters). Not yet built: the tgid→Identity
+enrichment pipeline, store writes from the collector, rollups, and the query
+verbs behind `top`/`series`/`watch`.
 
 ```
 crates/
-  procflow-ipc/   # shared protocol: .proto + prost-generated types (ADR-0008)
-  procflowd/      # daemon: DuckDB store + migrations; collector/IPC to come
-  procflow/       # CLI skeleton (ADR-0010)
+  procflow-common/ # no_std map ABI shared kernel↔userspace
+  procflow-ebpf/   # BPF programs (ADR-0006/0007; nightly, scripts/build-ebpf.sh)
+  procflow-ipc/    # shared protocol: .proto + prost-generated types (ADR-0008)
+  procflowd/       # daemon: store, IPC server, collector loader
+  procflow/        # CLI (ADR-0010; status works, query verbs pending)
 ```
 
 ## How it's meant to work

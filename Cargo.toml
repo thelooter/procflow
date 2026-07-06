@@ -1,10 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/procflow-common",
     "crates/procflow-ipc",
     "crates/procflowd",
     "crates/procflow",
 ]
+# Built separately with nightly + bpf-linker (scripts/build-ebpf.sh); its own
+# .cargo/config.toml targets bpfel-unknown-none.
+exclude = ["crates/procflow-ebpf"]
 
 [workspace.package]
 version = "0.1.0"
