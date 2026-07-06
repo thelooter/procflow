@@ -50,6 +50,8 @@ The reasoning lives in the repo, not in anyone's head:
   - [0007](./docs/adr/0007-pid-identity-enrichment-dead-pid-race.md) — PID→Identity enrichment and the dead-PID race
   - [0008](./docs/adr/0008-ipc-framed-protobuf-typed-rpc-streaming.md) — IPC query protocol: framed protobuf, typed RPC verbs, streaming
   - [0009](./docs/adr/0009-global-collection-uid-scoped-viewing.md) — global collection, uid-scoped viewing via SO_PEERCRED
+  - [0010](./docs/adr/0010-cli-surface-subcommands-map-to-ipc-verbs.md) — CLI surface: subcommands map to IPC verbs
+  - [0011](./docs/adr/0011-daemon-packaging-least-privilege-systemd.md) — daemon packaging: least-privilege caps, systemd, FHS layout
 
 ## Scope, deliberately
 
