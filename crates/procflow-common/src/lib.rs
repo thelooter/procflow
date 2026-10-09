@@ -25,7 +25,12 @@ pub struct TrafficKey {
 
 impl TrafficKey {
     pub const fn new(tgid: u32, dir: u8, scope: u8) -> Self {
-        Self { tgid, dir, scope, _pad: [0; 2] }
+        Self {
+            tgid,
+            dir,
+            scope,
+            _pad: [0; 2],
+        }
     }
 }
 

@@ -34,15 +34,17 @@ fn default_object_path() -> PathBuf {
 }
 
 pub fn object_path() -> PathBuf {
-    std::env::var_os(BPF_OBJECT_ENV).map(Into::into).unwrap_or_else(default_object_path)
+    std::env::var_os(BPF_OBJECT_ENV)
+        .map(Into::into)
+        .unwrap_or_else(default_object_path)
 }
 
 /// Load, attach, and start the drain thread. Returns the owning handle; drop
 /// detaches everything.
 pub fn start(store: Arc<Mutex<Store>>, hub: Arc<Hub>, poll_interval: Duration) -> Result<Ebpf> {
     let path = object_path();
-    let mut ebpf = Ebpf::load_file(&path)
-        .with_context(|| format!("loading BPF object {}", path.display()))?;
+    let mut ebpf =
+        Ebpf::load_file(&path).with_context(|| format!("loading BPF object {}", path.display()))?;
     let btf = Btf::from_sys_fs().context("reading kernel BTF from /sys/kernel/btf/vmlinux")?;
 
     // fentry hooks (ADR-0006)
@@ -51,17 +53,27 @@ pub fn start(store: Arc<Mutex<Store>>, hub: Arc<Hub>, poll_interval: Duration) -
             .program_mut(name)
             .with_context(|| format!("program {name} missing from object"))?
             .try_into()?;
-        prog.load(name, &btf).with_context(|| format!("loading fentry {name}"))?;
-        prog.attach().with_context(|| format!("attaching fentry {name}"))?;
+        prog.load(name, &btf)
+            .with_context(|| format!("loading fentry {name}"))?;
+        prog.attach()
+            .with_context(|| format!("attaching fentry {name}"))?;
     }
     // fexit hooks (ADR-0006)
-    for name in ["tcp_sendmsg", "udp_sendmsg", "udpv6_sendmsg", "udp_recvmsg", "udpv6_recvmsg"] {
+    for name in [
+        "tcp_sendmsg",
+        "udp_sendmsg",
+        "udpv6_sendmsg",
+        "udp_recvmsg",
+        "udpv6_recvmsg",
+    ] {
         let prog: &mut FExit = ebpf
             .program_mut(name)
             .with_context(|| format!("program {name} missing from object"))?
             .try_into()?;
-        prog.load(name, &btf).with_context(|| format!("loading fexit {name}"))?;
-        prog.attach().with_context(|| format!("attaching fexit {name}"))?;
+        prog.load(name, &btf)
+            .with_context(|| format!("loading fexit {name}"))?;
+        prog.attach()
+            .with_context(|| format!("attaching fexit {name}"))?;
     }
 
     // Maps move into the drain thread; the program handles stay in `ebpf`.
@@ -151,7 +163,9 @@ impl Drain {
             if self.traffic.remove(&key).is_err() || bytes == 0 {
                 continue;
             }
-            let Some(identity_id) = self.resolve(key.tgid) else { continue };
+            let Some(identity_id) = self.resolve(key.tgid) else {
+                continue;
+            };
             let entry = polled.entry((identity_id, key.scope)).or_insert((0, 0));
             match key.dir {
                 DIR_INGRESS => entry.0 += bytes,
@@ -161,11 +175,23 @@ impl Drain {
         }
         let mut deltas = Vec::with_capacity(polled.len());
         for ((identity_id, scope), (ingress_bytes, egress_bytes)) in polled {
-            let entry = self.acc.entry((bucket, identity_id, scope)).or_insert((0, 0));
+            let entry = self
+                .acc
+                .entry((bucket, identity_id, scope))
+                .or_insert((0, 0));
             entry.0 += ingress_bytes;
             entry.1 += egress_bytes;
-            let scope = if scope == SCOPE_LOOPBACK { Scope::Loopback } else { Scope::External };
-            deltas.push(Delta { identity_id, scope, ingress_bytes, egress_bytes });
+            let scope = if scope == SCOPE_LOOPBACK {
+                Scope::Loopback
+            } else {
+                Scope::External
+            };
+            deltas.push(Delta {
+                identity_id,
+                scope,
+                ingress_bytes,
+                egress_bytes,
+            });
         }
         self.hub.publish(Tick {
             at_unix_ms: crate::now_s() * 1000,
@@ -179,8 +205,12 @@ impl Drain {
     /// fully-closed buckets move; the in-progress minute stays in memory).
     fn flush_closed_minutes(&mut self) -> Result<()> {
         let open_bucket = current_minute();
-        let closed: Vec<AccKey> =
-            self.acc.keys().copied().filter(|(bucket, ..)| *bucket < open_bucket).collect();
+        let closed: Vec<AccKey> = self
+            .acc
+            .keys()
+            .copied()
+            .filter(|(bucket, ..)| *bucket < open_bucket)
+            .collect();
         if closed.is_empty() {
             return Ok(());
         }
@@ -188,7 +218,11 @@ impl Drain {
         for key in closed {
             let (bucket, identity_id, scope) = key;
             let (ingress, egress) = self.acc.remove(&key).unwrap();
-            let scope_str = if scope == SCOPE_LOOPBACK { "loopback" } else { "external" };
+            let scope_str = if scope == SCOPE_LOOPBACK {
+                "loopback"
+            } else {
+                "external"
+            };
             store
                 .record_minute(bucket, identity_id, scope_str, ingress, egress)
                 .with_context(|| format!("flushing minute {bucket} identity {identity_id}"))?;
@@ -205,9 +239,19 @@ impl Drain {
         }
         let record = enrich::from_proc(tgid)
             .ok()
-            .or_else(|| self.pid_meta.get(&tgid, 0).ok().map(|meta| enrich::from_pid_meta(&meta)))
+            .or_else(|| {
+                self.pid_meta
+                    .get(&tgid, 0)
+                    .ok()
+                    .map(|meta| enrich::from_pid_meta(&meta))
+            })
             .unwrap_or_else(enrich::fully_unresolved);
-        match self.store.lock().expect("store mutex poisoned").upsert_identity(&record) {
+        match self
+            .store
+            .lock()
+            .expect("store mutex poisoned")
+            .upsert_identity(&record)
+        {
             Ok(id) => {
                 self.cache.insert(tgid, id);
                 Some(id)

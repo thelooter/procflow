@@ -49,7 +49,10 @@ use std::io::{self, Read, Write};
 pub fn write_msg<M: Message>(w: &mut impl Write, msg: &M) -> io::Result<()> {
     let len = msg.encoded_len();
     if len > MAX_FRAME_LEN as usize {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds MAX_FRAME_LEN"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame exceeds MAX_FRAME_LEN",
+        ));
     }
     let mut buf = Vec::with_capacity(4 + len);
     buf.extend_from_slice(&(len as u32).to_le_bytes());
@@ -64,7 +67,10 @@ pub fn read_msg<M: Message + Default>(r: &mut impl Read) -> io::Result<M> {
     r.read_exact(&mut len_bytes)?;
     let len = u32::from_le_bytes(len_bytes);
     if len > MAX_FRAME_LEN {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds MAX_FRAME_LEN"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame exceeds MAX_FRAME_LEN",
+        ));
     }
     let mut buf = vec![0u8; len as usize];
     r.read_exact(&mut buf)?;

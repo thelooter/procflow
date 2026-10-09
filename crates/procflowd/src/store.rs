@@ -53,11 +53,11 @@ impl Store {
     }
 
     pub fn schema_version(&self) -> Result<i64> {
-        Ok(self
-            .conn
-            .query_row("SELECT coalesce(max(version), 0) FROM schema_version", [], |r| {
-                r.get(0)
-            })?)
+        Ok(self.conn.query_row(
+            "SELECT coalesce(max(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )?)
     }
 
     /// Upsert an Identity by its natural key (ADR-0004) and return the
@@ -147,7 +147,11 @@ mod tests {
              RETURNING id";
         let id1: i64 = store.conn.query_row(insert, [], |r| r.get(0)).unwrap();
         // Same natural key again must violate the UNIQUE constraint (ADR-0004).
-        assert!(store.conn.query_row(insert, [], |r| r.get(0)).map(|_: i64| ()).is_err());
+        assert!(store
+            .conn
+            .query_row(insert, [], |r| r.get(0))
+            .map(|_: i64| ())
+            .is_err());
         // A different normalized_cmdline is a distinct Identity with a fresh id.
         let id2: i64 = store
             .conn
@@ -176,7 +180,8 @@ mod tests {
                  VALUES (1, 1000, 'u', '/bin/x', '<none>', 'x', now(), now());",
             )
             .unwrap();
-        let upsert = "INSERT INTO traffic_minute (bucket, identity_id, scope, ingress_bytes, egress_bytes)
+        let upsert =
+            "INSERT INTO traffic_minute (bucket, identity_id, scope, ingress_bytes, egress_bytes)
              VALUES ('2026-07-06 12:00:00', 1, 'external', 100, 50)
              ON CONFLICT (bucket, identity_id, scope) DO UPDATE SET
                  ingress_bytes = traffic_minute.ingress_bytes + excluded.ingress_bytes,
@@ -223,7 +228,11 @@ mod tests {
         assert_eq!(id1, id2);
         let raw: String = store
             .conn
-            .query_row("SELECT raw_cmdline FROM identity WHERE id = ?", [id1], |r| r.get(0))
+            .query_row(
+                "SELECT raw_cmdline FROM identity WHERE id = ?",
+                [id1],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(raw, "npm run dev --port 3001");
         // Different key member → new Identity.
@@ -240,12 +249,21 @@ mod tests {
             .conn
             .execute_batch("SELECT timezone('Asia/Kolkata', TIMESTAMP '2026-01-01 00:00:00')")
             .unwrap();
-        let id = store.upsert_identity(&crate::enrich::fully_unresolved()).unwrap();
+        let id = store
+            .upsert_identity(&crate::enrich::fully_unresolved())
+            .unwrap();
         let seen_ms: i64 = store
             .conn
-            .query_row("SELECT epoch_ms(last_seen) FROM identity WHERE id = ?", [id], |r| r.get(0))
+            .query_row(
+                "SELECT epoch_ms(last_seen) FROM identity WHERE id = ?",
+                [id],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert!((seen_ms / 1000 - crate::now_s()).abs() < 60, "last_seen is {seen_ms}");
+        assert!(
+            (seen_ms / 1000 - crate::now_s()).abs() < 60,
+            "last_seen is {seen_ms}"
+        );
     }
 
     #[test]
@@ -255,7 +273,9 @@ mod tests {
             .upsert_identity(&crate::enrich::fully_unresolved())
             .unwrap();
         let bucket = 1_782_000_000 / 60 * 60; // any minute-aligned epoch
-        store.record_minute(bucket, id, "external", 100, 50).unwrap();
+        store
+            .record_minute(bucket, id, "external", 100, 50)
+            .unwrap();
         store.record_minute(bucket, id, "external", 20, 5).unwrap();
         let (ingress, egress): (u64, u64) = store
             .conn

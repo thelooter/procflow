@@ -90,7 +90,11 @@ pub fn from_proc(tgid: u32) -> Result<IdentityRecord> {
 /// the normalized_cmdline sentinel because the ADR-0004 natural key treats
 /// the comm *column* as display-only.
 pub fn from_pid_meta(meta: &PidMeta) -> IdentityRecord {
-    let comm_len = meta.comm.iter().position(|b| *b == 0).unwrap_or(meta.comm.len());
+    let comm_len = meta
+        .comm
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(meta.comm.len());
     let comm = String::from_utf8_lossy(&meta.comm[..comm_len]).into_owned();
     IdentityRecord {
         uid: meta.uid,
@@ -186,7 +190,10 @@ mod tests {
             normalize_cmdline("npm run dev --port 3001"),
         );
         // Distinct scripts stay distinct.
-        assert_ne!(normalize_cmdline("npm run dev"), normalize_cmdline("npm run build"));
+        assert_ne!(
+            normalize_cmdline("npm run dev"),
+            normalize_cmdline("npm run build")
+        );
         assert_eq!(normalize_cmdline("--config=/etc/app.conf"), "--config=<v>");
         assert_eq!(
             normalize_cmdline("worker 550e8400-e29b-41d4-a716-446655440000"),
@@ -200,7 +207,8 @@ mod tests {
 
     #[test]
     fn project_root_walk_finds_deepest_marker() {
-        let base = std::env::temp_dir().join(format!("procflow-enrich-test-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("procflow-enrich-test-{}", std::process::id()));
         let nested = base.join("repo/sub/dir");
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::write(base.join("repo/Cargo.toml"), "").unwrap();
@@ -220,8 +228,11 @@ mod tests {
         assert!(rec.exe.contains("procflowd"), "exe = {}", rec.exe);
         assert_eq!(rec.uid, unsafe { libc_geteuid() });
         // cargo test runs with cwd = crate dir, which has a Cargo.toml.
-        assert!(rec.project_root.ends_with("procflowd") || rec.project_root.ends_with("procflow"),
-            "project_root = {}", rec.project_root);
+        assert!(
+            rec.project_root.ends_with("procflowd") || rec.project_root.ends_with("procflow"),
+            "project_root = {}",
+            rec.project_root
+        );
         assert!(!rec.normalized_cmdline.is_empty());
         assert!(rec.username.is_some());
     }
@@ -230,7 +241,9 @@ mod tests {
     // would be circular; use the syscall through std's UID on the fs.
     unsafe fn libc_geteuid() -> u32 {
         use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self").map(|m| m.uid()).unwrap_or(u32::MAX)
+        std::fs::metadata("/proc/self")
+            .map(|m| m.uid())
+            .unwrap_or(u32::MAX)
     }
 
     #[test]

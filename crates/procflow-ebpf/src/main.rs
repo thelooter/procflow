@@ -22,7 +22,9 @@ use aya_ebpf::{
     programs::{FEntryContext, FExitContext},
 };
 use bindings::sock;
-use procflow_common::{PidMeta, TrafficKey, DIR_EGRESS, DIR_INGRESS, SCOPE_EXTERNAL, SCOPE_LOOPBACK};
+use procflow_common::{
+    PidMeta, TrafficKey, DIR_EGRESS, DIR_INGRESS, SCOPE_EXTERNAL, SCOPE_LOOPBACK,
+};
 
 // The BPF verifier requires a GPL-compatible license to call gpl_only
 // helpers (bpf_probe_read_kernel & co). Per-object string, not project
@@ -166,10 +168,18 @@ fn scope_of(sk: *const sock) -> Result<u8, i64> {
         match family {
             AF_INET => {
                 let daddr: u32 = bpf_probe_read_kernel(
-                    &(*sk).__sk_common.__bindgen_anon_1.__bindgen_anon_1.skc_daddr,
+                    &(*sk)
+                        .__sk_common
+                        .__bindgen_anon_1
+                        .__bindgen_anon_1
+                        .skc_daddr,
                 )?;
                 let saddr: u32 = bpf_probe_read_kernel(
-                    &(*sk).__sk_common.__bindgen_anon_1.__bindgen_anon_1.skc_rcv_saddr,
+                    &(*sk)
+                        .__sk_common
+                        .__bindgen_anon_1
+                        .__bindgen_anon_1
+                        .skc_rcv_saddr,
                 )?;
                 // __be32: on little-endian the first octet is the low byte.
                 if daddr & 0xff == 127 || (daddr != 0 && daddr == saddr) {
@@ -179,9 +189,8 @@ fn scope_of(sk: *const sock) -> Result<u8, i64> {
                 }
             }
             AF_INET6 => {
-                let a: [u32; 4] = bpf_probe_read_kernel(
-                    &(*sk).__sk_common.skc_v6_daddr.in6_u.u6_addr32,
-                )?;
+                let a: [u32; 4] =
+                    bpf_probe_read_kernel(&(*sk).__sk_common.skc_v6_daddr.in6_u.u6_addr32)?;
                 let v6_loopback = a[0] == 0 && a[1] == 0 && a[2] == 0 && a[3] == u32::to_be(1);
                 // ::ffff:127.x.y.z (v4-mapped loopback)
                 let v4_mapped_loopback =

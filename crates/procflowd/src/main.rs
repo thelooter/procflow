@@ -38,7 +38,10 @@ fn main() -> Result<()> {
     // Remove a stale socket from a previous run (bind fails on an existing path).
     match std::fs::symlink_metadata(&socket) {
         Ok(meta) if meta.file_type().is_socket() => std::fs::remove_file(&socket)?,
-        Ok(_) => anyhow::bail!("{} exists and is not a socket — refusing to remove it", socket.display()),
+        Ok(_) => anyhow::bail!(
+            "{} exists and is not a socket — refusing to remove it",
+            socket.display()
+        ),
         Err(_) => {}
     }
 
@@ -66,13 +69,18 @@ fn main() -> Result<()> {
 
     // The first pass heals whatever closed while the daemon was down.
     let rollup_store = store.clone();
-    std::thread::Builder::new().name("rollup".into()).spawn(move || loop {
-        let result = rollup_store.lock().expect("store mutex poisoned").rollup(procflowd::now_s());
-        if let Err(e) = result {
-            eprintln!("procflowd: rollup failed: {e:#}");
-        }
-        std::thread::sleep(ROLLUP_INTERVAL);
-    })?;
+    std::thread::Builder::new()
+        .name("rollup".into())
+        .spawn(move || loop {
+            let result = rollup_store
+                .lock()
+                .expect("store mutex poisoned")
+                .rollup(procflowd::now_s());
+            if let Err(e) = result {
+                eprintln!("procflowd: rollup failed: {e:#}");
+            }
+            std::thread::sleep(ROLLUP_INTERVAL);
+        })?;
     println!(
         "procflowd {} — schema v{schema_version}, ipc proto v{}, listening on {}",
         env!("CARGO_PKG_VERSION"),
@@ -80,5 +88,10 @@ fn main() -> Result<()> {
         socket.display(),
     );
     let live = collector.is_some().then_some(hub);
-    Arc::new(procflowd::server::Server { store, live, demo: false }).serve(listener)
+    Arc::new(procflowd::server::Server {
+        store,
+        live,
+        demo: false,
+    })
+    .serve(listener)
 }
