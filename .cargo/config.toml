@@ -1,0 +1,5 @@
+# Link the prebuilt libduckdb release instead of compiling DuckDB from
+# source. libduckdb-sys downloads the release matching its own version into
+# target/duckdb-download/ once, and every cargo invocation reuses it.
+[env]
+DUCKDB_DOWNLOAD_LIB = "1"

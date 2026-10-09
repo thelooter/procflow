@@ -36,3 +36,10 @@ socket (Topology B) and receives results back.
   format never mismatches. Reading aged data relies on DuckDB's ≥1.0 backward-
   compatibility guarantee (forward compat is best-effort but irrelevant here).
 - Daemon binary is larger (~tens of MB of bundled C++); acceptable for a daemon.
+- Amended 2026-10-09: development builds do not compile DuckDB. They link the
+  prebuilt `libduckdb.so` of the same pinned version, which the build
+  downloads from DuckDB's GitHub release. Compiling it from source ran one C++
+  job per core at 1 GiB or more each, once per tool, and locked up the
+  development machine. The shipped daemon is still meant to embed DuckDB.
+  Whether it does that through the crate's `bundled` feature or by depending
+  on a packaged libduckdb is settled with packaging (ADR-0011).

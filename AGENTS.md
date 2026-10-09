@@ -3,8 +3,9 @@
 ## Building & testing
 
 Cargo workspace: `procflow-ipc` (protocol; `.proto` + prost codegen, needs
-`protoc`), `procflowd` (daemon; bundled DuckDB — first build compiles the C++
-engine and takes several minutes), `procflow` (CLI).
+`protoc`), `procflowd` (daemon; links the prebuilt libduckdb release, which the
+first build downloads from GitHub into `target/duckdb-download/`), `procflow`
+(CLI).
 
 - `cargo test --workspace` — build + tests (stable toolchain only; the eBPF
   crate is excluded). The store tests in `crates/procflowd/src/store.rs` run
@@ -24,8 +25,15 @@ engine and takes several minutes), `procflow` (CLI).
   real IPC server on `/tmp/procflow-demo.sock` (or `$PROCFLOW_SOCKET`), with no
   privileges. Use it to run the CLI and the TUI by hand. The TUI's own tests
   render to ratatui's `TestBackend` in `crates/procflow/src/ui.rs`.
-- Build and test with `--workspace`. `-p <crate>` resolves features
-  differently and recompiles DuckDB.
+- DuckDB is not compiled here. `.cargo/config.toml` sets
+  `DUCKDB_DOWNLOAD_LIB=1`, so libduckdb-sys downloads the release matching its
+  own version and links `libduckdb.so`. `crates/procflowd/build.rs` adds the
+  rpath that lets the binaries run outside `cargo run`.
+- Do not turn on `duckdb/bundled` for everyday builds. It compiles DuckDB's
+  C++ with one job per core, each peaking at 1 GiB or more, and again for
+  every tool with its own flags (an IDE's `cargo check`, clippy, `-p` builds).
+  That hard-locked a 62 GiB machine on 2026-10-09. If a release build needs
+  it, pass `-j 8`.
 - Schema changes are **new** `crates/procflowd/migrations/NNNN_*.sql` files
   (applied in order past the recorded `schema_version`) — never edit an
   already-committed migration.

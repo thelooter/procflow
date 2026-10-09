@@ -120,14 +120,15 @@ fn main() -> Result<()> {
         })
         .collect::<Result<_>>()?;
 
-    // Five weeks of history: a few minutes' worth every four hours, then
-    // every minute of the last two hours. The rollup fills the coarser
-    // tiers from it.
+    // Five weeks of history: half an hour's worth every twelve hours, then
+    // every minute of the last three quarters of an hour. The rollup fills
+    // the coarser tiers from it. Kept small so the daemon is up within a few
+    // seconds.
     let mut random = Random(0x9E37_79B9_7F4A_7C15);
     let now = procflowd::now_s();
     let minute = now - now % 60;
-    let sparse = (1..35 * 6).map(|step| (minute - step * 4 * 3600, 600));
-    let minutely = (1..120).map(|minutes_ago| (minute - minutes_ago * 60, 60));
+    let sparse = (1..35 * 2).map(|step| (minute - step * 12 * 3600, 1800));
+    let minutely = (1..45).map(|minutes_ago| (minute - minutes_ago * 60, 60));
     for (bucket, seconds) in sparse.chain(minutely) {
         for (talker, id) in TALKERS.iter().zip(&ids) {
             let (ingress, egress) = random.bytes(talker, seconds);
