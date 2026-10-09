@@ -9,11 +9,13 @@ use std::path::Path;
 const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("../migrations/0001_init.sql"))];
 
 pub struct Store {
-    conn: Connection,
+    pub(crate) conn: Connection,
+    /// Zone day/month buckets align to (ADR-0003).
+    pub(crate) zone: crate::rollup::Zone,
+    pub(crate) retention: crate::rollup::Retention,
 }
 
 impl Store {
-    #[allow(dead_code)] // the daemon opens its real store file once wired up (ADR-0011)
     pub fn open(path: &Path) -> Result<Self> {
         Self::init(Connection::open(path).context("opening DuckDB store")?)
     }
@@ -29,7 +31,11 @@ impl Store {
                  applied_at TIMESTAMP NOT NULL DEFAULT now()
              );",
         )?;
-        let store = Store { conn };
+        let store = Store {
+            conn,
+            zone: crate::rollup::Zone::Local,
+            retention: Default::default(),
+        };
         store.migrate()?;
         Ok(store)
     }
