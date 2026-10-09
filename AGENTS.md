@@ -28,12 +28,22 @@ first build downloads from GitHub into `target/duckdb-download/`), `procflow`
 - DuckDB is not compiled here. `.cargo/config.toml` sets
   `DUCKDB_DOWNLOAD_LIB=1`, so libduckdb-sys downloads the release matching its
   own version and links `libduckdb.so`. `crates/procflowd/build.rs` adds the
-  rpath that lets the binaries run outside `cargo run`.
+  rpath that lets the binaries run outside `cargo run`. If a link fails with
+  `unable to find library -lduckdb`, the download under `target/` was removed
+  while the build script still counts as done: run
+  `cargo clean -p libduckdb-sys`.
 - Do not turn on `duckdb/bundled` for everyday builds. It compiles DuckDB's
   C++ with one job per core, each peaking at 1 GiB or more, and again for
   every tool with its own flags (an IDE's `cargo check`, clippy, `-p` builds).
   That hard-locked a 62 GiB machine on 2026-10-09. If a release build needs
   it, pass `-j 8`.
+- CI (`.github/workflows/ci.yml`) runs `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets --locked -- --deny warnings` and
+  `cargo test --workspace --locked`. A fourth job builds the eBPF object,
+  checks it with `scripts/check-ebpf.sh`, and runs `scripts/smoke-test.sh`,
+  which starts the daemon under sudo against the runner's kernel. Run the
+  first three before pushing. The Rust version, the nightly and bpf-linker
+  are pinned at the top of the workflow.
 - Schema changes are **new** `crates/procflowd/migrations/NNNN_*.sql` files
   (applied in order past the recorded `schema_version`) — never edit an
   already-committed migration.

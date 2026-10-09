@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to a pull request replaces its running checks. Every push to
+# main runs to the end.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned, so a new compiler or clippy lint arrives as a deliberate bump
+  # and not as a failure on an unrelated change.
+  RUST_VERSION: "1.99.0"
+  # The eBPF crate needs nightly for build-std (crates/procflow-ebpf/.cargo).
+  # scripts/build-ebpf.sh reads this.
+  PROCFLOW_NIGHTLY: nightly-2026-10-03
+  # Prebuilt and statically linked against LLVM. Its LLVM must not be older
+  # than the nightly's, so raise the two together.
+  BPF_LINKER_VERSION: "0.11.0"
+  BPF_LINKER_SHA256: 10f62ba9ab7e544d538370552660efcb4f1a19153d5752bbf0f6b51f3bada450
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt
+          rustup default "$RUST_VERSION"
+      - name: Check the workspace
+        run: cargo fmt --all --check
+      - name: Check the eBPF crate
+        working-directory: crates/procflow-ebpf
+        run: cargo fmt --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy
+          rustup default "$RUST_VERSION"
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends protobuf-compiler
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo clippy --workspace --all-targets --locked -- --deny warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends protobuf-compiler
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # libduckdb-sys downloads the library into target/duckdb-download. The
+      # cache drops that directory but keeps the build script's record of
+      # having run, and the link then fails with "unable to find library
+      # -lduckdb". Forgetting the record makes the download happen again.
+      - name: Forget the cached DuckDB download
+        run: cargo clean --package libduckdb-sys
+      - run: cargo test --workspace --locked
+
+  # Builds the BPF programs and runs the daemon against the runner's kernel.
+  # The unit tests cannot cover this: loading the programs needs root.
+  e2e:
+    name: eBPF build and end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup toolchain install "$PROCFLOW_NIGHTLY" --profile minimal --component rust-src
+          rustup default "$RUST_VERSION"
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends protobuf-compiler
+      - name: Install bpf-linker
+        run: |
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/bpf-linker.tar.zst" \
+            "https://github.com/aya-rs/bpf-linker/releases/download/v$BPF_LINKER_VERSION/bpf-linker-x86_64-unknown-linux-musl.tar.zst"
+          echo "$BPF_LINKER_SHA256  $RUNNER_TEMP/bpf-linker.tar.zst" | sha256sum --check
+          tar --zstd --extract --file "$RUNNER_TEMP/bpf-linker.tar.zst" --directory "$HOME/.cargo/bin"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            .
+            crates/procflow-ebpf
+          key: ${{ env.PROCFLOW_NIGHTLY }}
+          # bpf-linker is installed above, checked against its hash.
+          cache-bin: "false"
+      - name: Build the eBPF object
+        run: scripts/build-ebpf.sh
+      - name: Check the eBPF object
+        run: scripts/check-ebpf.sh
+      - name: Forget the cached DuckDB download (see the Test job)
+        run: cargo clean --package libduckdb-sys
+      - name: Build the workspace
+        run: cargo build --workspace --locked
+      - name: Kernel
+        run: uname --kernel-release
+      - name: Smoke test with the real collector
+        run: scripts/smoke-test.sh

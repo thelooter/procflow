@@ -1,5 +1,7 @@
 # procflow
 
+[![CI](https://github.com/thelooter/procflow/actions/workflows/ci.yml/badge.svg)](https://github.com/thelooter/procflow/actions/workflows/ci.yml)
+
 **Per-process network traffic, tracked over time.**
 
 procflow is conceptually [nethogs](https://github.com/raboof/nethogs) crossed
@@ -28,8 +30,11 @@ complete. Working today:
   (`procflow`, or `procflow watch`)
 
 Not yet built: packaging (systemd unit, capabilities, config file; ADR-0011).
-The live view has so far only run against the demo daemon below. A run against
-the real collector is still to be verified.
+
+CI runs the daemon with the real collector on every change: it moves a known
+number of bytes and checks that the live stream and the store attribute them
+to the right processes (`scripts/smoke-test.sh`). The interactive view itself
+has only been driven by hand, against the demo daemon below.
 
 ```
 crates/
