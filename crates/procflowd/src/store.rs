@@ -63,14 +63,18 @@ impl Store {
     /// Upsert an Identity by its natural key (ADR-0004) and return the
     /// surrogate id. Display-only attributes are last-seen-wins.
     pub fn upsert_identity(&self, rec: &crate::enrich::IdentityRecord) -> Result<i64> {
+        // The instant comes from here rather than SQL `now()`: once DuckDB's
+        // ICU extension is loaded, `now()` lands in a TIMESTAMP column as
+        // local wall time, not UTC.
+        let seen = crate::now_s() * 1_000_000;
         Ok(self.conn.query_row(
             "INSERT INTO identity
                  (uid, unit_or_cgroup, exe, project_root, normalized_cmdline,
                   comm, raw_cmdline, username, first_seen, last_seen)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, now(), now())
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, make_timestamp(?), make_timestamp(?))
              ON CONFLICT (uid, unit_or_cgroup, exe, project_root, normalized_cmdline)
              DO UPDATE SET
-                 last_seen   = now(),
+                 last_seen   = excluded.last_seen,
                  comm        = excluded.comm,
                  raw_cmdline = excluded.raw_cmdline,
                  username    = excluded.username
@@ -84,6 +88,8 @@ impl Store {
                 rec.comm,
                 rec.raw_cmdline,
                 rec.username,
+                seen,
+                seen,
             ],
             |r| r.get(0),
         )?)
@@ -223,6 +229,23 @@ mod tests {
         // Different key member → new Identity.
         rec.normalized_cmdline = "npm run build".into();
         assert_ne!(store.upsert_identity(&rec).unwrap(), id1);
+    }
+
+    #[test]
+    fn seen_timestamps_are_utc_instants() {
+        let store = Store::open_in_memory().unwrap();
+        // Any time zone function autoloads DuckDB's ICU extension, after
+        // which SQL `now()` casts to local wall time instead of UTC.
+        store
+            .conn
+            .execute_batch("SELECT timezone('Asia/Kolkata', TIMESTAMP '2026-01-01 00:00:00')")
+            .unwrap();
+        let id = store.upsert_identity(&crate::enrich::fully_unresolved()).unwrap();
+        let seen_ms: i64 = store
+            .conn
+            .query_row("SELECT epoch_ms(last_seen) FROM identity WHERE id = ?", [id], |r| r.get(0))
+            .unwrap();
+        assert!((seen_ms / 1000 - crate::now_s()).abs() < 60, "last_seen is {seen_ms}");
     }
 
     #[test]
