@@ -47,17 +47,16 @@ pub fn start(store: Arc<Mutex<Store>>, hub: Arc<Hub>, poll_interval: Duration) -
         Ebpf::load_file(&path).with_context(|| format!("loading BPF object {}", path.display()))?;
     let btf = Btf::from_sys_fs().context("reading kernel BTF from /sys/kernel/btf/vmlinux")?;
 
-    // fentry hooks (ADR-0006)
-    for name in ["tcp_cleanup_rbuf"] {
-        let prog: &mut FEntry = ebpf
-            .program_mut(name)
-            .with_context(|| format!("program {name} missing from object"))?
-            .try_into()?;
-        prog.load(name, &btf)
-            .with_context(|| format!("loading fentry {name}"))?;
-        prog.attach()
-            .with_context(|| format!("attaching fentry {name}"))?;
-    }
+    // fentry hook (ADR-0006)
+    let name = "tcp_cleanup_rbuf";
+    let prog: &mut FEntry = ebpf
+        .program_mut(name)
+        .with_context(|| format!("program {name} missing from object"))?
+        .try_into()?;
+    prog.load(name, &btf)
+        .with_context(|| format!("loading fentry {name}"))?;
+    prog.attach()
+        .with_context(|| format!("attaching fentry {name}"))?;
     // fexit hooks (ADR-0006)
     for name in [
         "tcp_sendmsg",
