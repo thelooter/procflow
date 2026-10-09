@@ -80,5 +80,5 @@ fn main() -> Result<()> {
         socket.display(),
     );
     let live = collector.is_some().then_some(hub);
-    Arc::new(procflowd::server::Server { store, live }).serve(listener)
+    Arc::new(procflowd::server::Server { store, live, demo: false }).serve(listener)
 }

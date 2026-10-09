@@ -152,6 +152,7 @@ message HelloOk {
   uint32 proto_min = 2;
   uint32 proto_max = 3;
   bool collector_active = 4; // false: serving stored history only
+  bool demo = 5; // the traffic is invented, not measured
 }
 
 message Identity {
@@ -186,6 +187,7 @@ message Rows {
   // Identity once, in the first Chunk that references it.
   repeated Identity identities = 2;
   Tier tier = 3; // the tier that answered (resolves TIER_UNSPECIFIED)
+  bool demo = 4; // the traffic is invented, not measured
 }
 
 // Deltas for one poll interval; bucket_unix_ms is the interval's end.

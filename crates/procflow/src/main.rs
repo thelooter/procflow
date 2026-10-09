@@ -400,6 +400,19 @@ fn by_id(identities: Vec<Identity>) -> HashMap<i64, Identity> {
         .collect()
 }
 
+/// What every reader of invented numbers has to be told.
+pub(crate) const DEMO_NOTE: &str = "demo daemon: this traffic is invented, not measured";
+
+/// Run one snapshot verb for a plain command. A demo daemon's answer is
+/// flagged on stderr, where it reaches a reader without breaking a pipe.
+fn fetch(body: request::Body) -> Result<procflow_ipc::v1::Rows> {
+    let rows = client::rows(body)?;
+    if rows.demo {
+        eprintln!("note: {DEMO_NOTE}");
+    }
+    Ok(rows)
+}
+
 fn top(query: TopIdentities, output: &Output) -> Result<()> {
     let range = query.range.expect("a window always has a range");
     let (scope, direction) = (query.scope(), query.direction());
@@ -409,7 +422,7 @@ fn top(query: TopIdentities, output: &Output) -> Result<()> {
         GroupBy::User => Some("USER"),
         GroupBy::Identity | GroupBy::Unspecified => None,
     };
-    let rows = client::rows(request::Body::TopIdentities(query))?;
+    let rows = fetch(request::Body::TopIdentities(query))?;
     let tier = rows.tier();
     let identities = by_id(rows.identities);
     if output.json {
@@ -417,6 +430,7 @@ fn top(query: TopIdentities, output: &Output) -> Result<()> {
             "from": rfc3339(range.from_unix_ms),
             "to": rfc3339(range.to_unix_ms),
             "tier": fmt::tier(tier),
+            "demo": rows.demo,
             "rows": rows.counters.iter().map(|c| counter_json(c, &identities)).collect::<Vec<_>>(),
         }));
     }
@@ -480,7 +494,7 @@ fn top(query: TopIdentities, output: &Output) -> Result<()> {
 
 fn series(query: Series, output: &Output) -> Result<()> {
     let scope = query.scope();
-    let rows = client::rows(request::Body::Series(query))?;
+    let rows = fetch(request::Body::Series(query))?;
     let tier = rows.tier();
     let identity = rows.identities.first().cloned().unwrap_or_default();
     if output.json {
@@ -535,7 +549,7 @@ fn series(query: Series, output: &Output) -> Result<()> {
 }
 
 fn list(query: ListIdentities, json: bool) -> Result<()> {
-    let identities = client::rows(request::Body::ListIdentities(query))?.identities;
+    let identities = fetch(request::Body::ListIdentities(query))?.identities;
     if json {
         return print_json(&identities.iter().map(identity_json).collect());
     }
@@ -568,7 +582,7 @@ fn list(query: ListIdentities, json: bool) -> Result<()> {
 }
 
 fn show(identity_id: i64, json: bool) -> Result<()> {
-    let rows = client::rows(request::Body::Resolve(Resolve { identity_id }))?;
+    let rows = fetch(request::Body::Resolve(Resolve { identity_id }))?;
     let identity = rows.identities.first().cloned().unwrap_or_default();
     if json {
         return print_json(&identity_json(&identity));
@@ -630,6 +644,9 @@ fn status() -> Result<()> {
         "not running (stored history only)"
     };
     println!("daemon:    procflowd {}", hello.daemon_version);
+    if hello.demo {
+        println!("note:      {DEMO_NOTE}");
+    }
     println!("collector: {collector}");
     println!(
         "protocol:  v{}..=v{} (client v{})",

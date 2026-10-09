@@ -28,6 +28,9 @@ pub struct Server {
     pub store: Arc<Mutex<Store>>,
     /// The collector's live feed; `None` while the collector is not running.
     pub live: Option<Arc<Hub>>,
+    /// The store holds invented traffic. Every answer says so, because
+    /// nothing else tells a reader that the numbers were never measured.
+    pub demo: bool,
 }
 
 impl Server {
@@ -88,6 +91,7 @@ impl Server {
                         proto_min: PROTO_VERSION,
                         proto_max: PROTO_VERSION,
                         collector_active: self.live.is_some(),
+                        demo: self.demo,
                     })),
                 }
             }
@@ -108,7 +112,10 @@ impl Server {
         match result {
             Ok(rows) => Response {
                 id: req.id,
-                body: Some(response::Body::Ok(rows)),
+                body: Some(response::Body::Ok(Rows {
+                    demo: self.demo,
+                    ..rows
+                })),
             },
             Err(e) => {
                 if let QueryError::Internal(e) = &e {
@@ -283,7 +290,7 @@ fn peer_uid(stream: &UnixStream) -> std::io::Result<u32> {
         uid: 0,
         gid: 0,
     };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
     // SAFETY: `cred` and `len` are live, writable, and `len` is `cred`'s size.
     let rc = unsafe {
         libc::getsockopt(

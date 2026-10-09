@@ -343,6 +343,7 @@ impl Store {
             counters,
             identities: self.identities_by_id(vis, &ids)?,
             tier: tier as i32,
+            ..Default::default()
         })
     }
 
@@ -408,6 +409,7 @@ impl Store {
             counters,
             identities: vec![identity],
             tier: tier as i32,
+            ..Default::default()
         })
     }
 }

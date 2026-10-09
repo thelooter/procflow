@@ -135,7 +135,12 @@ fn draw_header(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
         LiveStatus::Connecting => ("connecting", t.warn),
         LiveStatus::Down(_) => ("down", t.bad),
     };
-    let mut left = vec![Span::styled(" ⇅ procflow", bold(t.accent)), divider()];
+    let mut left = vec![Span::styled(" ⇅ procflow", bold(t.accent))];
+    if app.daemon.demo {
+        left.push(Span::raw(" "));
+        left.push(Span::styled(" DEMO ", bold(t.base).bg(t.warn)));
+    }
+    left.push(divider());
     left.extend(fact("daemon", app.daemon.daemon_version.clone(), t.text));
     left.push(divider());
     left.extend(fact("collector", collector.to_string(), collector_color));
@@ -584,10 +589,15 @@ fn draw_status(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
             ),
         ),
     };
-    let left = Line::from(vec![
-        Span::styled(" ● ", fg(dot)),
-        Span::styled(text, fg(t.subtext)),
-    ]);
+    let mut left = vec![Span::styled(" ● ", fg(dot))];
+    if app.daemon.demo && app.error.is_none() {
+        left.push(Span::styled(
+            format!("{} · ", crate::DEMO_NOTE),
+            bold(t.warn),
+        ));
+    }
+    left.push(Span::styled(text, fg(t.subtext)));
+    let left = Line::from(left);
     let keys = "tab panes · ↑↓ move · enter apply · / filter · q quit ";
     // The key hints give way to a long message. They are styled per span:
     // a style on the line itself would repaint the whole row.
@@ -648,6 +658,16 @@ mod tests {
             THEMES[1].accent,
             "the selection bar stays"
         );
+    }
+
+    #[test]
+    fn a_demo_daemon_is_labelled() {
+        let mut app = app(3);
+        assert!(!render(&mut app, 150, 36).contains("DEMO"));
+        app.daemon.demo = true;
+        let screen = render(&mut app, 150, 36);
+        assert!(screen.contains("⇅ procflow  DEMO"));
+        assert!(screen.contains("this traffic is invented, not measured · live"));
     }
 
     #[test]

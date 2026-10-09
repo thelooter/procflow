@@ -51,6 +51,9 @@ cargo run -p procflowd --example demo
 PROCFLOW_SOCKET=/tmp/procflow-demo.sock cargo run -p procflow
 ```
 
+None of those numbers are measured. The interactive view shows a `DEMO` badge
+and every command prints a note saying so.
+
 ## How it's meant to work
 
 - A privileged **daemon** uses **eBPF** (via [`aya`](https://aya-rs.dev/),

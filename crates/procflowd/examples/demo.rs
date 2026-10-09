@@ -185,6 +185,7 @@ fn main() -> Result<()> {
     Arc::new(Server {
         store,
         live: Some(hub),
+        demo: true,
     })
     .serve(listener)
 }

@@ -68,6 +68,8 @@ fn start_server(collector_running: bool) -> Fixture {
     let server = Arc::new(Server {
         store: Arc::new(Mutex::new(store)),
         live: collector_running.then(|| hub.clone()),
+        // Stands in for the demo daemon when the collector is "running".
+        demo: collector_running,
     });
     let listener = UnixListener::bind(&socket).unwrap();
     std::thread::spawn(move || server.serve(listener));
@@ -143,6 +145,7 @@ fn hello_roundtrip_over_real_socket() {
                 assert_eq!(ok.daemon_version, env!("CARGO_PKG_VERSION"));
                 assert_eq!((ok.proto_min, ok.proto_max), (PROTO_VERSION, PROTO_VERSION));
                 assert_eq!(ok.collector_active, collector_running);
+                assert_eq!(ok.demo, collector_running);
             }
             other => panic!("expected HelloOk, got {other:?}"),
         }
