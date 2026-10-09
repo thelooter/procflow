@@ -72,7 +72,11 @@ pub struct Retention {
 impl Default for Retention {
     fn default() -> Self {
         const DAY: i64 = 86_400;
-        Retention { minute_s: 2 * DAY, hour_s: 90 * DAY, day_s: 730 * DAY }
+        Retention {
+            minute_s: 2 * DAY,
+            hour_s: 90 * DAY,
+            day_s: 730 * DAY,
+        }
     }
 }
 
@@ -100,8 +104,11 @@ const GRACE_S: i64 = 120;
 /// `(tier, the tier it is rolled up from)`. Day reads minutes rather than
 /// hours: in a zone with a sub-hour UTC offset, local midnight falls inside
 /// a UTC hour bucket.
-const ROLLUPS: [(Tier, Tier); 3] =
-    [(Tier::Hour, Tier::Minute), (Tier::Day, Tier::Minute), (Tier::Month, Tier::Day)];
+const ROLLUPS: [(Tier, Tier); 3] = [
+    (Tier::Hour, Tier::Minute),
+    (Tier::Day, Tier::Minute),
+    (Tier::Month, Tier::Day),
+];
 
 pub(crate) fn table(tier: Tier) -> &'static str {
     match tier {
@@ -140,7 +147,9 @@ impl Store {
             [watermark.unwrap_or(0) * 1_000_000],
             |r| r.get(0),
         )?;
-        let Some(oldest_ms) = oldest_ms else { return Ok(false) };
+        let Some(oldest_ms) = oldest_ms else {
+            return Ok(false);
+        };
         let (start, end) = self.zone.bounds(tier, oldest_ms / 1000);
         if end + GRACE_S > now_s {
             return Ok(false);
@@ -189,12 +198,18 @@ impl Store {
     fn prune(&self, now_s: i64) -> Result<()> {
         let delete = |tier: Tier, before_s: i64| {
             self.conn.execute(
-                &format!("DELETE FROM {} WHERE bucket < make_timestamp(?)", table(tier)),
+                &format!(
+                    "DELETE FROM {} WHERE bucket < make_timestamp(?)",
+                    table(tier)
+                ),
                 [before_s * 1_000_000],
             )
         };
         if let (Some(hour), Some(day)) = (self.watermark(Tier::Hour)?, self.watermark(Tier::Day)?) {
-            delete(Tier::Minute, (now_s - self.retention.minute_s).min(hour).min(day))?;
+            delete(
+                Tier::Minute,
+                (now_s - self.retention.minute_s).min(hour).min(day),
+            )?;
         }
         delete(Tier::Hour, now_s - self.retention.hour_s)?;
         if let Some(month) = self.watermark(Tier::Month)? {
@@ -212,7 +227,9 @@ mod tests {
     fn store_in(offset_minutes: i32) -> (Store, i64) {
         let mut store = Store::open_in_memory().unwrap();
         store.zone = Zone::Fixed(FixedOffset::east_opt(offset_minutes * 60).unwrap());
-        let id = store.upsert_identity(&crate::enrich::fully_unresolved()).unwrap();
+        let id = store
+            .upsert_identity(&crate::enrich::fully_unresolved())
+            .unwrap();
         (store, id)
     }
 
@@ -226,7 +243,9 @@ mod tests {
             ))
             .unwrap();
         let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, i64>(0)? / 1000, r.get(1)?, r.get(2)?)))
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)? / 1000, r.get(1)?, r.get(2)?))
+            })
             .unwrap();
         rows.map(Result::unwrap).collect()
     }
@@ -236,8 +255,14 @@ mod tests {
         let india = Zone::Fixed(FixedOffset::east_opt(330 * 60).unwrap());
         // 2026-07-06 20:00 UTC is 01:30 on the 7th in +05:30.
         let t = utc("2026-07-06 20:00");
-        assert_eq!(india.bounds(Tier::Day, t), (utc("2026-07-06 18:30"), utc("2026-07-07 18:30")));
-        assert_eq!(india.bounds(Tier::Month, t), (utc("2026-06-30 18:30"), utc("2026-07-31 18:30")));
+        assert_eq!(
+            india.bounds(Tier::Day, t),
+            (utc("2026-07-06 18:30"), utc("2026-07-07 18:30"))
+        );
+        assert_eq!(
+            india.bounds(Tier::Month, t),
+            (utc("2026-06-30 18:30"), utc("2026-07-31 18:30"))
+        );
         // Minute and hour ignore the zone (ADR-0003).
         assert_eq!(india.bounds(Tier::Hour, t + 61), (t, t + 3600));
         assert_eq!(india.bounds(Tier::Minute, t + 61), (t + 60, t + 120));
@@ -246,35 +271,58 @@ mod tests {
     #[test]
     fn rollup_moves_only_closed_buckets_and_is_idempotent() {
         let (store, id) = store_in(0);
-        store.record_minute(utc("2026-07-06 10:05"), id, "external", 100, 10).unwrap();
-        store.record_minute(utc("2026-07-06 10:55"), id, "external", 50, 5).unwrap();
-        store.record_minute(utc("2026-07-06 11:10"), id, "external", 7, 1).unwrap();
+        store
+            .record_minute(utc("2026-07-06 10:05"), id, "external", 100, 10)
+            .unwrap();
+        store
+            .record_minute(utc("2026-07-06 10:55"), id, "external", 50, 5)
+            .unwrap();
+        store
+            .record_minute(utc("2026-07-06 11:10"), id, "external", 7, 1)
+            .unwrap();
 
         // 11:30: hour 10 is closed, hour 11 and the day are still open.
         let now = utc("2026-07-06 11:30");
         store.rollup(now).unwrap();
         store.rollup(now).unwrap(); // a rerun must not double-count
-        assert_eq!(rows(&store, Tier::Hour), [(utc("2026-07-06 10:00"), 150, 15)]);
-        assert_eq!(store.watermark(Tier::Hour).unwrap(), Some(utc("2026-07-06 11:00")));
+        assert_eq!(
+            rows(&store, Tier::Hour),
+            [(utc("2026-07-06 10:00"), 150, 15)]
+        );
+        assert_eq!(
+            store.watermark(Tier::Hour).unwrap(),
+            Some(utc("2026-07-06 11:00"))
+        );
         assert!(rows(&store, Tier::Day).is_empty());
 
         // Two days later everything has closed; nothing is a month old yet.
         store.rollup(utc("2026-07-08 00:10")).unwrap();
         assert_eq!(
             rows(&store, Tier::Hour),
-            [(utc("2026-07-06 10:00"), 150, 15), (utc("2026-07-06 11:00"), 7, 1)]
+            [
+                (utc("2026-07-06 10:00"), 150, 15),
+                (utc("2026-07-06 11:00"), 7, 1)
+            ]
         );
-        assert_eq!(rows(&store, Tier::Day), [(utc("2026-07-06 00:00"), 157, 16)]);
+        assert_eq!(
+            rows(&store, Tier::Day),
+            [(utc("2026-07-06 00:00"), 157, 16)]
+        );
         assert!(rows(&store, Tier::Month).is_empty());
 
         store.rollup(utc("2026-08-01 00:10")).unwrap();
-        assert_eq!(rows(&store, Tier::Month), [(utc("2026-07-01 00:00"), 157, 16)]);
+        assert_eq!(
+            rows(&store, Tier::Month),
+            [(utc("2026-07-01 00:00"), 157, 16)]
+        );
     }
 
     #[test]
     fn a_bucket_inside_the_grace_period_waits() {
         let (store, id) = store_in(0);
-        store.record_minute(utc("2026-07-06 10:59"), id, "external", 1, 1).unwrap();
+        store
+            .record_minute(utc("2026-07-06 10:59"), id, "external", 1, 1)
+            .unwrap();
         store.rollup(utc("2026-07-06 11:01")).unwrap();
         assert!(rows(&store, Tier::Hour).is_empty());
         store.rollup(utc("2026-07-06 11:02")).unwrap();
@@ -285,21 +333,36 @@ mod tests {
     fn day_buckets_split_at_local_midnight_even_inside_a_utc_hour() {
         // +05:30: local midnight is 18:30 UTC, inside the 18:00 hour bucket.
         let (store, id) = store_in(330);
-        store.record_minute(utc("2026-07-06 18:29"), id, "external", 1, 0).unwrap();
-        store.record_minute(utc("2026-07-06 18:30"), id, "external", 2, 0).unwrap();
+        store
+            .record_minute(utc("2026-07-06 18:29"), id, "external", 1, 0)
+            .unwrap();
+        store
+            .record_minute(utc("2026-07-06 18:30"), id, "external", 2, 0)
+            .unwrap();
         store.rollup(utc("2026-07-08 00:00")).unwrap();
         assert_eq!(
             rows(&store, Tier::Day),
-            [(utc("2026-07-05 18:30"), 1, 0), (utc("2026-07-06 18:30"), 2, 0)]
+            [
+                (utc("2026-07-05 18:30"), 1, 0),
+                (utc("2026-07-06 18:30"), 2, 0)
+            ]
         );
     }
 
     #[test]
     fn prune_respects_retention_and_watermarks() {
         let (mut store, id) = store_in(0);
-        store.retention = Retention { minute_s: 3600, hour_s: 7200, day_s: 86_400 };
-        store.record_minute(utc("2026-07-06 10:05"), id, "external", 100, 10).unwrap();
-        store.record_minute(utc("2026-07-06 11:10"), id, "external", 7, 1).unwrap();
+        store.retention = Retention {
+            minute_s: 3600,
+            hour_s: 7200,
+            day_s: 86_400,
+        };
+        store
+            .record_minute(utc("2026-07-06 10:05"), id, "external", 100, 10)
+            .unwrap();
+        store
+            .record_minute(utc("2026-07-06 11:10"), id, "external", 7, 1)
+            .unwrap();
 
         // Both minutes are past retention, but the day tier has not been
         // built from them yet, so they stay.
@@ -310,6 +373,9 @@ mod tests {
         store.rollup(utc("2026-07-07 00:10")).unwrap();
         assert!(rows(&store, Tier::Minute).is_empty());
         assert!(rows(&store, Tier::Hour).is_empty());
-        assert_eq!(rows(&store, Tier::Day), [(utc("2026-07-06 00:00"), 107, 11)]);
+        assert_eq!(
+            rows(&store, Tier::Day),
+            [(utc("2026-07-06 00:00"), 107, 11)]
+        );
     }
 }

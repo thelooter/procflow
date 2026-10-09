@@ -5,21 +5,24 @@
 //! NEW_PIDS ring buffer, read-and-clear of the per-CPU TRAFFIC counters,
 //! tgid → Identity resolution (live /proc, else PID_META fallback), a
 //! current-minute accumulator, and flush of closed minutes to the store.
+//! Each poll's deltas are also published to the live [`Hub`].
 //!
 //! Failure to start (no CAP_BPF/CAP_PERFMON, missing object, no BTF)
 //! degrades gracefully: the daemon keeps serving IPC.
 
 use crate::enrich;
+use crate::live::{Delta, Hub, Tick};
 use crate::store::Store;
 use anyhow::{Context, Result};
 use aya::maps::{HashMap as BpfHashMap, MapData, PerCpuHashMap, RingBuf};
 use aya::programs::{FEntry, FExit};
 use aya::{Btf, Ebpf};
 use procflow_common::{PidMeta, TrafficKey, DIR_EGRESS, DIR_INGRESS, SCOPE_LOOPBACK};
+use procflow_ipc::v1::Scope;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Env override for the BPF object path (development).
 pub const BPF_OBJECT_ENV: &str = "PROCFLOW_BPF_OBJECT";
@@ -36,7 +39,7 @@ pub fn object_path() -> PathBuf {
 
 /// Load, attach, and start the drain thread. Returns the owning handle; drop
 /// detaches everything.
-pub fn start(store: Arc<Mutex<Store>>, poll_interval: Duration) -> Result<Ebpf> {
+pub fn start(store: Arc<Mutex<Store>>, hub: Arc<Hub>, poll_interval: Duration) -> Result<Ebpf> {
     let path = object_path();
     let mut ebpf = Ebpf::load_file(&path)
         .with_context(|| format!("loading BPF object {}", path.display()))?;
@@ -64,6 +67,8 @@ pub fn start(store: Arc<Mutex<Store>>, poll_interval: Duration) -> Result<Ebpf> 
     // Maps move into the drain thread; the program handles stay in `ebpf`.
     let drain = Drain {
         store,
+        hub,
+        last_drain: Instant::now(),
         traffic: PerCpuHashMap::try_from(ebpf.take_map("TRAFFIC").context("TRAFFIC map missing")?)?,
         new_pids: RingBuf::try_from(ebpf.take_map("NEW_PIDS").context("NEW_PIDS map missing")?)?,
         pid_meta: BpfHashMap::try_from(ebpf.take_map("PID_META").context("PID_META map missing")?)?,
@@ -82,6 +87,9 @@ type AccKey = (i64, i64, u8);
 
 struct Drain {
     store: Arc<Mutex<Store>>,
+    hub: Arc<Hub>,
+    /// When the counters were last read: the span a published tick covers.
+    last_drain: Instant,
     traffic: PerCpuHashMap<MapData, TrafficKey, u64>,
     new_pids: RingBuf<MapData>,
     pid_meta: BpfHashMap<MapData, u32, PidMeta>,
@@ -125,14 +133,14 @@ impl Drain {
         }
     }
 
-    /// Read-and-clear the per-CPU counters and fold them into the
-    /// current-minute accumulator.
+    /// Read-and-clear the per-CPU counters, fold them into the
+    /// current-minute accumulator, and publish them as one live tick.
     fn drain_traffic(&mut self) -> Result<()> {
         let keys: Vec<TrafficKey> = self.traffic.keys().filter_map(|k| k.ok()).collect();
-        if keys.is_empty() {
-            return Ok(());
-        }
+        let interval = self.last_drain.elapsed();
+        self.last_drain = Instant::now();
         let bucket = current_minute();
+        let mut polled: HashMap<(i64, u8), (u64, u64)> = HashMap::new();
         for key in keys {
             let bytes: u64 = match self.traffic.get(&key, 0) {
                 Ok(per_cpu) => per_cpu.iter().sum(),
@@ -144,13 +152,26 @@ impl Drain {
                 continue;
             }
             let Some(identity_id) = self.resolve(key.tgid) else { continue };
-            let entry = self.acc.entry((bucket, identity_id, key.scope)).or_insert((0, 0));
+            let entry = polled.entry((identity_id, key.scope)).or_insert((0, 0));
             match key.dir {
                 DIR_INGRESS => entry.0 += bytes,
                 DIR_EGRESS => entry.1 += bytes,
                 _ => {}
             }
         }
+        let mut deltas = Vec::with_capacity(polled.len());
+        for ((identity_id, scope), (ingress_bytes, egress_bytes)) in polled {
+            let entry = self.acc.entry((bucket, identity_id, scope)).or_insert((0, 0));
+            entry.0 += ingress_bytes;
+            entry.1 += egress_bytes;
+            let scope = if scope == SCOPE_LOOPBACK { Scope::Loopback } else { Scope::External };
+            deltas.push(Delta { identity_id, scope, ingress_bytes, egress_bytes });
+        }
+        self.hub.publish(Tick {
+            at_unix_ms: crate::now_s() * 1000,
+            interval_ms: interval.as_millis() as u32,
+            deltas,
+        });
         Ok(())
     }
 
@@ -217,9 +238,6 @@ impl Drain {
 
 /// Start of the current UTC minute, epoch seconds (wall clock, ADR-0003).
 fn current_minute() -> i64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before 1970")
-        .as_secs() as i64;
+    let now = crate::now_s();
     now - now % 60
 }

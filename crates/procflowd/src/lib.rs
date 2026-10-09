@@ -3,6 +3,8 @@
 
 pub mod collector;
 pub mod enrich;
+pub mod live;
+pub mod query;
 pub mod rollup;
 pub mod server;
 pub mod store;

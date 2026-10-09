@@ -30,6 +30,17 @@ pub fn socket_path() -> std::path::PathBuf {
         .unwrap_or_else(|| SOCKET_PATH.into())
 }
 
+/// Whether a counter in scope `have` belongs to a view asking for `want`.
+/// An unspecified scope is the default view: external only (CONTEXT.md).
+pub fn scope_matches(want: v1::Scope, have: v1::Scope) -> bool {
+    use v1::Scope;
+    match want {
+        Scope::All => true,
+        Scope::Loopback => have == Scope::Loopback,
+        Scope::External | Scope::Unspecified => have == Scope::External,
+    }
+}
+
 use prost::Message;
 use std::io::{self, Read, Write};
 

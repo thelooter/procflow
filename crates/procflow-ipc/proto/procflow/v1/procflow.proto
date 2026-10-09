@@ -51,6 +51,7 @@ enum ErrorCode {
   ERROR_CODE_NOT_FOUND = 3;
   ERROR_CODE_INTERNAL = 4;
   ERROR_CODE_UNIMPLEMENTED = 5;
+  ERROR_CODE_UNAVAILABLE = 6; // e.g. Watch while the collector is not running
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +85,15 @@ message TopIdentities {
   Tier tier = 2;
   Scope scope = 3;
   GroupBy group_by = 4;
-  uint32 limit = 5;
+  uint32 limit = 5; // 0 = no limit
+  // Ranking column. UNSPECIFIED ranks by ingress+egress — an ordering only;
+  // the sum is never returned (CONTEXT.md "Direction").
+  Direction direction = 6;
+  // Dimension filters (ADR-0010); empty = no filter. project/exe are
+  // case-insensitive substrings; user is an exact username or numeric uid.
+  string project = 7;
+  string exe = 8;
+  string user = 9;
 }
 
 message Series {
@@ -96,16 +105,22 @@ message Series {
 
 message ListIdentities {
   string filter = 1; // substring match over exe/project_root/comm; empty = all
+  // Dimension filters, same semantics as TopIdentities.
+  string project = 2;
+  string exe = 3;
+  string user = 4;
 }
 
 message Resolve {
   int64 identity_id = 1;
 }
 
+// Live deltas: one Chunk per collector poll interval, until the client
+// disconnects or sends Cancel on the same connection.
 message Watch {
   Scope scope = 1;
   GroupBy group_by = 2;
-  uint32 limit = 3;
+  uint32 limit = 3; // per chunk; 0 = no limit
 }
 
 message Cancel {
@@ -136,6 +151,7 @@ message HelloOk {
   string daemon_version = 1;
   uint32 proto_min = 2;
   uint32 proto_max = 3;
+  bool collector_active = 4; // false: serving stored history only
 }
 
 message Identity {
@@ -147,6 +163,9 @@ message Identity {
   string normalized_cmdline = 6;
   string comm = 7;    // display-only (ADR-0004)
   string username = 8; // display-only (ADR-0004)
+  string raw_cmdline = 9; // display-only (ADR-0004)
+  int64 first_seen_unix_ms = 10;
+  int64 last_seen_unix_ms = 11;
 }
 
 // One counter row. Direction is the ingress/egress column split — stored and
@@ -157,15 +176,22 @@ message CounterRow {
   Scope scope = 3;
   uint64 ingress_bytes = 4;
   uint64 egress_bytes = 5;
+  // Set instead of identity_id when the request grouped by project/exe/user.
+  string group_key = 6;
 }
 
 message Rows {
   repeated CounterRow counters = 1;
-  repeated Identity identities = 2; // dimension rows referenced by counters
+  // Dimension rows referenced by counters. A Watch stream sends each
+  // Identity once, in the first Chunk that references it.
+  repeated Identity identities = 2;
+  Tier tier = 3; // the tier that answered (resolves TIER_UNSPECIFIED)
 }
 
+// Deltas for one poll interval; bucket_unix_ms is the interval's end.
 message Chunk {
   Rows rows = 1;
+  uint32 interval_ms = 2;
 }
 
 message End {}
