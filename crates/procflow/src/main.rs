@@ -1,9 +1,11 @@
 mod client;
 mod fmt;
+mod tui;
+mod ui;
 
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime};
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use fmt::human_bytes;
 use procflow_ipc::v1::{
     request, CounterRow, Direction, GroupBy, Identity, ListIdentities, Resolve, Scope, Series,
@@ -11,9 +13,11 @@ use procflow_ipc::v1::{
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, IsTerminal, Write};
 
 /// Per-process network traffic, tracked over time.
+///
+/// Run without a subcommand for the interactive view.
 #[derive(Parser)]
 #[command(name = "procflow", version)]
 struct Cli {
@@ -75,15 +79,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Live deltas as JSON, one object per poll interval
+    /// Live view; the interactive one unless --json is given or stdout is piped
     Watch {
         #[arg(long, value_parser = scope_arg, default_value = "external", value_name = SCOPES)]
         scope: Scope,
         #[arg(long, value_parser = group_arg, default_value = "identity", value_name = GROUPS)]
         by: GroupBy,
-        /// Rows per interval; 0 for all
+        /// With --json: rows per interval; 0 for all
         #[arg(long, default_value_t = 0)]
         limit: u32,
+        /// Stream one JSON object per poll interval
+        #[arg(long)]
+        json: bool,
     },
     /// Daemon status and versions
     Status,
@@ -145,7 +152,7 @@ fn local_ms(time: NaiveDateTime) -> i64 {
         .map_or(time.and_utc().timestamp_millis(), |t| t.timestamp_millis())
 }
 
-fn local_midnight_ms(date: NaiveDate) -> i64 {
+pub(crate) fn local_midnight_ms(date: NaiveDate) -> i64 {
     local_ms(date.and_hms_opt(0, 0, 0).expect("midnight is a valid time"))
 }
 
@@ -251,12 +258,23 @@ fn direction_arg(value: &str) -> Result<Direction, String> {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        None => Ok(Cli::command().print_help()?),
-        Some(Command::Watch { scope, by, limit }) => watch_json(Watch {
-            scope: scope as i32,
-            group_by: by as i32,
+        None => tui::run(Scope::External, GroupBy::Identity),
+        Some(Command::Watch {
+            scope,
+            by,
             limit,
-        }),
+            json,
+        }) => {
+            if json || !std::io::stdout().is_terminal() {
+                watch_json(Watch {
+                    scope: scope as i32,
+                    group_by: by as i32,
+                    limit,
+                })
+            } else {
+                tui::run(scope, by)
+            }
+        }
         Some(Command::Top {
             window,
             dir,
@@ -603,6 +621,7 @@ fn status() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
     fn cli_definition_is_consistent() {

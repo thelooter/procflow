@@ -123,7 +123,7 @@ impl Server {
     /// sends `Cancel` (ADR-0008).
     fn watch(&self, mut stream: UnixStream, id: u64, watch: &Watch, vis: Visibility) -> Result<()> {
         let Some(hub) = &self.live else {
-            let message = "the collector is not running, so there is no live traffic to watch";
+            let message = "the collector is not running";
             return Ok(write_msg(
                 &mut stream,
                 &error(id, ErrorCode::Unavailable, message.into()),

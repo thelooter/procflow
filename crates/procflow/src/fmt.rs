@@ -27,6 +27,17 @@ pub fn basename(path: &str) -> &str {
         .unwrap_or(path)
 }
 
+/// `path` with the caller's home directory written as `~`.
+pub fn tilde(path: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    match path.strip_prefix(&home) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("~{rest}")
+        }
+        _ => path.to_string(),
+    }
+}
+
 /// Short name for an Identity: its comm, else its exe's file name.
 pub fn name(identity: &Identity) -> &str {
     if identity.comm.is_empty() {
@@ -189,5 +200,12 @@ mod tests {
         );
         assert_eq!(ellipsis("procflow", 5), "proc…");
         assert_eq!(ellipsis("procflow", 8), "procflow");
+        let home = std::env::var("HOME").unwrap();
+        assert_eq!(tilde(&format!("{home}/code/web")), "~/code/web");
+        assert_eq!(
+            tilde(&format!("{home}-other/web")),
+            format!("{home}-other/web")
+        );
+        assert_eq!(tilde("/usr/bin/node"), "/usr/bin/node");
     }
 }
