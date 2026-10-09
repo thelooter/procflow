@@ -26,6 +26,11 @@ collection but per-user viewing.
 - Socket filesystem permissions gate *reachability* coarsely (e.g. the `procflow`
   group, or `0666` with the daemon doing all gating); the `SO_PEERCRED` uid check
   is the actual visibility boundary.
+- As built, the socket is mode `0666` and the peer-uid check is the only gate.
+  An Identity the caller may not see is reported exactly like one that does not
+  exist. The admin group and the admin's explicit `uid` filter are not built
+  yet. A root caller narrows the view with the `user` dimension filter
+  (ADR-0010).
 
 ## Rationale
 

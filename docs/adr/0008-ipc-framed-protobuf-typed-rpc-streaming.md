@@ -51,6 +51,15 @@ the protocol must tolerate version drift gracefully.
   streaming `Chunk`s (e.g. one per closed minute or per poll-interval delta).
   Cancellation is the client closing the socket (daemon sees EOF/EPIPE and drops
   the watch); an explicit `Cancel` is also honoured.
+  - As built, `Watch` sends one `Chunk` per collector poll interval, holding
+    that interval's deltas and its length (`interval_ms`), so a client can turn
+    bytes into a rate. Each Identity is described once per stream, in the first
+    chunk that mentions it.
+  - `Cancel` is the one request sent on a connection already in use. The client
+    sends it on the `Watch` connection it wants to end, and the daemon answers
+    `End` and closes.
+  - While the collector is not running, `Watch` answers
+    `Error{ code: UNAVAILABLE }` instead of an empty stream.
 
 ## Considered options
 

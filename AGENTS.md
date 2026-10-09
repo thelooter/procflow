@@ -16,9 +16,16 @@ engine and takes several minutes), `procflow` (CLI).
   from the build machine's kernel BTF via `aya-tool generate sock` (needs
   `cargo install bindgen-cli`); regenerate rather than hand-edit. The object's
   `license` section must stay `Dual MIT/GPL` (ADR-0012).
-- Dev runs use env overrides: `PROCFLOW_SOCKET` (IPC socket path) and
-  `PROCFLOW_BPF_OBJECT` (BPF object path). Without CAP_BPF+CAP_PERFMON the
-  daemon logs "collector disabled" and still serves IPC — expected.
+- Dev runs use env overrides: `PROCFLOW_SOCKET` (IPC socket path),
+  `PROCFLOW_DB` (store file, or `:memory:`) and `PROCFLOW_BPF_OBJECT` (BPF
+  object path). Without CAP_BPF+CAP_PERFMON the daemon logs "collector
+  disabled" and still serves IPC — expected.
+- `cargo run -p procflowd --example demo` serves invented traffic through the
+  real IPC server on `/tmp/procflow-demo.sock` (or `$PROCFLOW_SOCKET`), with no
+  privileges. Use it to run the CLI and the TUI by hand. The TUI's own tests
+  render to ratatui's `TestBackend` in `crates/procflow/src/ui.rs`.
+- Build and test with `--workspace`. `-p <crate>` resolves features
+  differently and recompiles DuckDB.
 - Schema changes are **new** `crates/procflowd/migrations/NNNN_*.sql` files
   (applied in order past the recorded `schema_version`) — never edit an
   already-committed migration.

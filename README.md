@@ -19,19 +19,36 @@ persisting it so you can answer "what's eaten my bandwidth this week, by app?"
 ## Status
 
 🚧 **Early implementation.** The design record (domain glossary + 12 ADRs) is
-complete. Working today: the tested DuckDB schema, the IPC server +
-`procflow status` end-to-end, and the eBPF collector programs (compiled and
-loadable; drain loop logs counters). Not yet built: the tgid→Identity
-enrichment pipeline, store writes from the collector, rollups, and the query
-verbs behind `top`/`series`/`watch`.
+complete. Working today:
+
+- the eBPF collector and the tgid→Identity enrichment pipeline
+- the DuckDB store, with minute → hour → day → month rollups and pruning
+- the IPC server, answering every query verb scoped to the caller's uid
+- the CLI: `top`, `series`, `list`, `show`, `status`, and an interactive view
+  (`procflow`, or `procflow watch`)
+
+Not yet built: packaging (systemd unit, capabilities, config file; ADR-0011).
+The live view has so far only run against the demo daemon below. A run against
+the real collector is still to be verified.
 
 ```
 crates/
   procflow-common/ # no_std map ABI shared kernel↔userspace
   procflow-ebpf/   # BPF programs (ADR-0006/0007; nightly, scripts/build-ebpf.sh)
   procflow-ipc/    # shared protocol: .proto + prost-generated types (ADR-0008)
-  procflowd/       # daemon: store, IPC server, collector loader
-  procflow/        # CLI (ADR-0010; status works, query verbs pending)
+  procflowd/       # daemon: collector, store, rollups, IPC server
+  procflow/        # CLI and interactive view (ADR-0010)
+```
+
+## Trying it without root
+
+`procflowd` needs CAP_BPF and CAP_PERFMON to collect. To see the CLI without
+them, run the demo daemon. It is the real IPC server over an in-memory store,
+fed invented traffic in place of the collector:
+
+```
+cargo run -p procflowd --example demo
+PROCFLOW_SOCKET=/tmp/procflow-demo.sock cargo run -p procflow
 ```
 
 ## How it's meant to work
