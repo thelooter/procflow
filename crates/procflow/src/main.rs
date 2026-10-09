@@ -1,5 +1,6 @@
 mod client;
 mod fmt;
+mod theme;
 mod tui;
 mod ui;
 
@@ -21,6 +22,19 @@ use std::io::{ErrorKind, IsTerminal, Write};
 #[derive(Parser)]
 #[command(name = "procflow", version)]
 struct Cli {
+    /// Colour theme of the interactive view
+    #[arg(
+        long,
+        global = true,
+        env = "PROCFLOW_THEME",
+        default_value = "mocha",
+        value_parser = theme_arg,
+        value_name = theme::NAMES
+    )]
+    theme: usize,
+    /// Keep the terminal's own background in the interactive view
+    #[arg(long, global = true, env = "PROCFLOW_TRANSPARENT")]
+    transparent: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -232,6 +246,10 @@ fn enum_arg<E>(
         .ok_or_else(|| format!("expected {choices}"))
 }
 
+fn theme_arg(value: &str) -> Result<usize, String> {
+    theme::index(value).ok_or_else(|| format!("expected {}", theme::NAMES))
+}
+
 fn scope_arg(value: &str) -> Result<Scope, String> {
     enum_arg(value, "SCOPE", Scope::from_str_name, SCOPES)
 }
@@ -257,8 +275,13 @@ fn direction_arg(value: &str) -> Result<Direction, String> {
 }
 
 fn main() -> Result<()> {
-    match Cli::parse().command {
-        None => tui::run(Scope::External, GroupBy::Identity),
+    let Cli {
+        theme,
+        transparent,
+        command,
+    } = Cli::parse();
+    match command {
+        None => tui::run(Scope::External, GroupBy::Identity, theme, transparent),
         Some(Command::Watch {
             scope,
             by,
@@ -272,7 +295,7 @@ fn main() -> Result<()> {
                     limit,
                 })
             } else {
-                tui::run(scope, by)
+                tui::run(scope, by, theme, transparent)
             }
         }
         Some(Command::Top {
@@ -645,11 +668,27 @@ mod tests {
     }
 
     #[test]
+    fn the_theme_flags_work_before_and_after_the_subcommand() {
+        let parse =
+            |args: &[&str]| Cli::try_parse_from(args).map(|cli| (cli.theme, cli.transparent));
+        assert_eq!(
+            parse(&["procflow", "--theme", "latte"]).unwrap(),
+            (3, false)
+        );
+        assert_eq!(
+            parse(&["procflow", "watch", "--theme", "frappe", "--transparent"]).unwrap(),
+            (2, true)
+        );
+        assert!(parse(&["procflow", "--theme", "solarized"]).is_err());
+    }
+
+    #[test]
     fn windows_resolve_against_local_time() {
         let parse = |args: &[&str]| match Cli::try_parse_from([&["procflow", "top"], args].concat())
         {
             Ok(Cli {
                 command: Some(Command::Top { window, .. }),
+                ..
             }) => window,
             Ok(_) => unreachable!(),
             Err(e) => panic!("{e}"),

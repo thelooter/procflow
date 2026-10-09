@@ -5,6 +5,7 @@
 //! Identity and for every scope, then grouped, scoped, filtered and sorted
 //! here, so switching between those never waits on the daemon.
 
+use crate::theme::{Theme, THEMES};
 use crate::{client, fmt, ui};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, Local};
@@ -238,6 +239,10 @@ pub struct App {
     pub sidebar: usize,
     pub table: TableState,
     selected_key: Option<String>,
+    /// Position in [`THEMES`].
+    pub theme_index: usize,
+    /// Leave the terminal's own background instead of painting the theme's.
+    pub transparent: bool,
 
     /// Everything below is derived by `recompute`.
     pub rows: Vec<Row>,
@@ -279,6 +284,8 @@ impl App {
             sidebar: 0,
             table: TableState::default(),
             selected_key: None,
+            theme_index: 0,
+            transparent: false,
             rows: Vec::new(),
             group_sizes: [0; 4],
             total: Measure::default(),
@@ -629,6 +636,16 @@ impl App {
         self.table.selected().and_then(|index| self.rows.get(index))
     }
 
+    /// The colours to draw with.
+    pub fn theme(&self) -> Theme {
+        let theme = THEMES[self.theme_index];
+        if self.transparent {
+            theme.see_through()
+        } else {
+            theme
+        }
+    }
+
     /// Seconds one poll interval lasts, once the first has arrived.
     pub fn poll_seconds(&self) -> Option<f64> {
         self.intervals.back().map(|ms| *ms as f64 / 1000.0)
@@ -735,6 +752,8 @@ impl App {
                 }
             }
             KeyCode::Char('r') => self.refreshed = None,
+            KeyCode::Char('t') => self.theme_index = (self.theme_index + 1) % THEMES.len(),
+            KeyCode::Char('b') => self.transparent = !self.transparent,
             _ => {}
         }
         false
@@ -801,10 +820,11 @@ fn spawn_feed() -> Receiver<Feed> {
     rx
 }
 
-pub fn run(scope: Scope, group: GroupBy) -> Result<()> {
+pub fn run(scope: Scope, group: GroupBy, theme_index: usize, transparent: bool) -> Result<()> {
     // Before the screen is taken over: a down daemon is a plain error.
     let daemon = client::hello()?;
     let mut app = App::new(daemon, client::rows, spawn_feed(), scope, group);
+    (app.theme_index, app.transparent) = (theme_index, transparent);
     let mut terminal = ratatui::try_init().context(
         "the interactive view needs a terminal; use a subcommand, or `procflow watch --json`",
     )?;
@@ -999,6 +1019,29 @@ pub(crate) mod tests {
         assert_eq!(app.history.ingress.len(), 24);
         assert_eq!(app.history.tier, "hour");
         assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn themes_cycle_and_the_background_toggles() {
+        let mut app = app(1);
+        assert_eq!(app.theme().name, "mocha");
+        press(&mut app, "t");
+        assert_eq!(app.theme().name, "macchiato");
+        press(&mut app, "ttt");
+        assert_eq!(
+            app.theme().name,
+            "mocha",
+            "the last theme wraps to the first"
+        );
+
+        // Without the background the dim roles each move up a step.
+        let painted = app.theme();
+        press(&mut app, "b");
+        assert!(app.transparent);
+        assert_eq!(app.theme().muted, painted.subtext);
+        assert_eq!(app.theme().subtext, painted.text);
+        press(&mut app, "b");
+        assert_eq!(app.theme(), painted);
     }
 
     #[test]

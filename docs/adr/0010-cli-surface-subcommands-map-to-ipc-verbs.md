@@ -30,6 +30,11 @@ and be scriptable.
   for both scopes and groups, scopes and sorts them itself, so those switches
   do not wait on the daemon. With `--json`, or when stdout is not a terminal,
   `watch` prints one JSON object per poll interval instead.
+  Colours come from a theme: the four Catppuccin flavours, Mocha by default.
+  `--theme` or `PROCFLOW_THEME` picks one, and `t` cycles through them while
+  the view is open. The view paints the theme's background, so its contrast
+  does not depend on the terminal's own. `--transparent`,
+  `PROCFLOW_TRANSPARENT` or `b` leaves the terminal's background in place.
 - **`top` flags:** `--since 24h` / `--today` / `--this-month` / `--from --to`;
   `--dir ingress|egress|both` (default both, shown as **two columns, never
   summed**); `--scope external|loopback|all` (default `external`);

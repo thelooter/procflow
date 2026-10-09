@@ -1,6 +1,7 @@
 //! Drawing the interactive view. All state lives in [`App`].
 
 use crate::fmt::{self, human_bytes};
+use crate::theme::Theme;
 use crate::tui::{App, Choice, Focus, LiveStatus, Row, Window, CHOICES};
 use procflow_ipc::v1::GroupBy;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -8,23 +9,6 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Cell, Paragraph, Sparkline, Table};
 use ratatui::Frame;
-
-// Tokyo Night. Only foregrounds are set, so the terminal keeps its own
-// background.
-const TEXT: Color = Color::Rgb(192, 202, 245);
-const MUTED: Color = Color::Rgb(120, 130, 172);
-const FAINT: Color = Color::Rgb(72, 80, 115);
-const ACCENT: Color = Color::Rgb(125, 207, 255);
-const TEAL: Color = Color::Rgb(42, 195, 222);
-const INGRESS: Color = Color::Rgb(122, 162, 247);
-const EGRESS: Color = Color::Rgb(255, 158, 100);
-const GOOD: Color = Color::Rgb(158, 206, 106);
-const WARN: Color = Color::Rgb(224, 175, 104);
-const BAD: Color = Color::Rgb(247, 118, 142);
-const SELECTION: Color = Color::Rgb(27, 110, 110);
-/// Text on [`SELECTION`]. Spelled out because ANSI "white" is a light grey
-/// in most terminal palettes.
-const SELECTED_TEXT: Color = Color::Rgb(255, 255, 255);
 
 /// Cells the table's trend sparkline or share gauge takes.
 const TREND_WIDTH: usize = 16;
@@ -64,20 +48,24 @@ fn rate(bytes_per_second: u64) -> String {
     format!("{}/s", human_bytes(bytes_per_second))
 }
 
-fn pane(title: &str, focused: bool) -> Block<'_> {
-    let title_style = if focused { bold(ACCENT) } else { fg(MUTED) };
+fn pane(t: &Theme, title: &str, focused: bool) -> Block<'static> {
+    let title_style = if focused {
+        bold(t.accent)
+    } else {
+        fg(t.subtext)
+    };
     Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(fg(if focused { MUTED } else { FAINT }))
+        .border_style(fg(if focused { t.focus } else { t.border }))
         .title(Span::styled(format!(" {title} "), title_style))
 }
 
 /// A `[ key label ]` hint for a pane's border.
-fn hint(key: &str, label: &str) -> Vec<Span<'static>> {
+fn hint(t: &Theme, key: &str, label: &str) -> Vec<Span<'static>> {
     vec![
-        Span::styled("[ ", fg(FAINT)),
-        Span::styled(key.to_string(), bold(ACCENT)),
-        Span::styled(format!(" {label} ] "), fg(MUTED)),
+        Span::styled("[ ", fg(t.muted)),
+        Span::styled(key.to_string(), bold(t.accent)),
+        Span::styled(format!(" {label} ] "), fg(t.subtext)),
     ]
 }
 
@@ -91,6 +79,13 @@ fn group_label(group: GroupBy) -> &'static str {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    let t = &app.theme();
+    if !app.transparent {
+        // Every cell gets the theme's background first. Nothing drawn on
+        // top sets one, apart from the selection bar.
+        let background = Style::new().bg(t.base).fg(t.text);
+        frame.render_widget(Block::new().style(background), frame.area());
+    }
     let [header, body, filter, status] = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(8),
@@ -98,7 +93,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    draw_header(frame, app, header);
+    draw_header(frame, app, t, header);
 
     // Narrow terminals drop the detail pane first, then the sidebar.
     let sidebar_width = if body.width >= 84 { 22 } else { 0 };
@@ -110,84 +105,87 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     ])
     .areas(body);
     if sidebar.width > 0 {
-        draw_sidebar(frame, app, sidebar);
+        draw_sidebar(frame, app, t, sidebar);
     }
-    draw_table(frame, app, table);
+    draw_table(frame, app, t, table);
     if detail.width > 0 {
-        draw_detail(frame, app, detail);
+        draw_detail(frame, app, t, detail);
     }
-    draw_filter(frame, app, filter);
-    draw_status(frame, app, status);
+    draw_filter(frame, app, t, filter);
+    draw_status(frame, app, t, status);
 }
 
-fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_header(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
     let [facts, gauges, rule] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(area);
-    let divider = || Span::styled("  │  ", fg(FAINT));
+    let divider = || Span::styled("  │  ", fg(t.border));
     let fact = |label: &str, value: String, color: Color| {
         vec![
-            Span::styled(format!("{label} "), fg(MUTED)),
+            Span::styled(format!("{label} "), fg(t.subtext)),
             Span::styled(value, bold(color)),
         ]
     };
 
     let (collector, collector_color) = match &app.live {
-        LiveStatus::Live => ("live", GOOD),
-        LiveStatus::Connecting => ("connecting", WARN),
-        LiveStatus::Down(_) => ("down", BAD),
+        LiveStatus::Live => ("live", t.good),
+        LiveStatus::Connecting => ("connecting", t.warn),
+        LiveStatus::Down(_) => ("down", t.bad),
     };
-    let mut left = vec![Span::styled(" ⇅ procflow", bold(ACCENT)), divider()];
-    left.extend(fact("daemon", app.daemon.daemon_version.clone(), TEXT));
+    let mut left = vec![Span::styled(" ⇅ procflow", bold(t.accent)), divider()];
+    left.extend(fact("daemon", app.daemon.daemon_version.clone(), t.text));
     left.push(divider());
     left.extend(fact("collector", collector.to_string(), collector_color));
-    let mut right = fact("window", app.window.label().to_lowercase(), WARN);
+    let mut right = fact("window", app.window.label().to_lowercase(), t.warn);
     right.push(divider());
-    right.extend(fact("scope", fmt::scope(app.scope).to_string(), WARN));
+    right.extend(fact("scope", fmt::scope(app.scope).to_string(), t.warn));
     right.push(divider());
-    right.extend(fact("by", group_label(app.group).to_string(), WARN));
+    right.extend(fact("by", group_label(app.group).to_string(), t.warn));
+    right.push(divider());
+    right.extend(fact("theme", t.name.to_string(), t.warn));
     right.push(Span::raw(" "));
     frame.render_widget(Line::from(left), facts);
     frame.render_widget(Line::from(right).right_aligned(), facts);
 
     let mut line = vec![Span::raw(" ")];
     match &app.live {
-        LiveStatus::Down(reason) => {
-            line.push(Span::styled(format!("no live traffic: {reason}"), fg(WARN)))
-        }
+        LiveStatus::Down(reason) => line.push(Span::styled(
+            format!("no live traffic: {reason}"),
+            fg(t.warn),
+        )),
         _ => {
             let samples = |pick: fn(&(u64, u64)) -> u64| {
                 app.total.samples.iter().map(pick).collect::<Vec<_>>()
             };
             for (label, color, now, trend) in [
-                ("▼ IN ", INGRESS, app.total.ingress, samples(|s| s.0)),
-                ("▲ OUT", EGRESS, app.total.egress, samples(|s| s.1)),
+                ("▼ IN ", t.ingress, app.total.ingress, samples(|s| s.0)),
+                ("▲ OUT", t.egress, app.total.egress, samples(|s| s.1)),
             ] {
-                line.push(Span::styled(format!("{label} "), fg(MUTED)));
+                line.push(Span::styled(format!("{label} "), fg(t.subtext)));
                 line.push(Span::styled(spark(&trend, 24), fg(color)));
                 line.push(Span::styled(format!(" {:<14}", rate(now)), bold(color)));
             }
         }
     }
     let today = vec![
-        Span::styled("TODAY ", fg(MUTED)),
-        Span::styled(format!("▼ {}", human_bytes(app.today.0)), bold(INGRESS)),
-        Span::styled(format!("  ▲ {} ", human_bytes(app.today.1)), bold(EGRESS)),
+        Span::styled("TODAY ", fg(t.subtext)),
+        Span::styled(format!("▼ {}", human_bytes(app.today.0)), bold(t.ingress)),
+        Span::styled(format!("  ▲ {} ", human_bytes(app.today.1)), bold(t.egress)),
     ];
     frame.render_widget(Line::from(line), gauges);
     frame.render_widget(Line::from(today).right_aligned(), gauges);
     frame.render_widget(
-        Span::styled("╌".repeat(rule.width as usize), fg(FAINT)),
+        Span::styled("╌".repeat(rule.width as usize), fg(t.border)),
         rule,
     );
 }
 
-fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_sidebar(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
     let focused = app.focus == Focus::Sidebar;
-    let block = pane("Views", focused);
+    let block = pane(t, "Views", focused);
     let width = block.inner(area).width as usize;
     let mut lines = Vec::new();
     for (index, choice) in CHOICES.iter().enumerate() {
@@ -222,16 +220,16 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             if index > 0 {
                 lines.push(Line::default());
             }
-            lines.push(Line::styled(format!(" ▾ {heading}"), bold(FAINT)));
+            lines.push(Line::styled(format!(" ▾ {heading}"), bold(t.muted)));
         }
         let marker = if active { "▸" } else { " " };
         let text = format!("  {marker} {label}");
         let pad = width.saturating_sub(text.chars().count() + note.chars().count() + 1);
-        let mut style = if active { bold(TEXT) } else { fg(MUTED) };
-        let mut note_style = fg(if active { WARN } else { FAINT });
+        let mut style = if active { bold(t.text) } else { fg(t.subtext) };
+        let mut note_style = fg(if active { t.warn } else { t.muted });
         if focused && index == app.sidebar {
-            style = style.bg(SELECTION).fg(SELECTED_TEXT);
-            note_style = note_style.bg(SELECTION);
+            style = style.bg(t.accent).fg(t.base);
+            note_style = note_style.bg(t.accent);
         }
         lines.push(Line::from(vec![
             Span::styled(format!("{text}{}", " ".repeat(pad)), style),
@@ -241,14 +239,14 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
+fn draw_table(frame: &mut Frame, app: &mut App, t: &Theme, area: Rect) {
     let live = app.window == Window::Live;
     let grouped = !matches!(app.group, GroupBy::Identity | GroupBy::Unspecified);
     let title = format!("Top talkers · {}", app.window.label().to_lowercase());
-    let mut hints = hint("/", "filter");
-    hints.extend(hint("o", &format!("sort {}", app.sort.label())));
+    let mut hints = hint(t, "/", "filter");
+    hints.extend(hint(t, "o", &format!("sort {}", app.sort.label())));
     let block =
-        pane(&title, app.focus == Focus::Table).title_top(Line::from(hints).right_aligned());
+        pane(t, &title, app.focus == Focus::Table).title_top(Line::from(hints).right_aligned());
 
     if app.rows.is_empty() {
         let message = match (&app.live, live, app.filter.is_empty()) {
@@ -266,7 +264,7 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Fill(1),
         ])
         .areas(inner);
-        frame.render_widget(Line::styled(message, fg(MUTED)).centered(), middle);
+        frame.render_widget(Line::styled(message, fg(t.subtext)).centered(), middle);
         return;
     }
 
@@ -329,7 +327,7 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or(0);
     let rows = app.rows.iter().enumerate().map(|(index, row)| {
         let idle = live && row.ingress == 0 && row.egress == 0;
-        let tone = |color: Color| fg(if idle { FAINT } else { color });
+        let tone = |color: Color| fg(if idle { t.muted } else { color });
         let number = |value: String, color: Color| {
             Cell::from(Line::styled(value, tone(color)).right_aligned())
         };
@@ -349,18 +347,18 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
             gauge(sort.key(row.ingress, row.egress), biggest, TREND_WIDTH)
         };
         let cells = [
-            (true, number((index + 1).to_string(), FAINT)),
+            (true, number((index + 1).to_string(), t.muted)),
             (
                 true,
-                text(&row.name, if row.unresolved { WARN } else { TEXT }),
+                text(&row.name, if row.unresolved { t.warn } else { t.text }),
             ),
-            (show_second, text(&row.second, MUTED)),
-            (show_third, text(&row.third, MUTED)),
-            (true, number(bytes(row.ingress), INGRESS)),
-            (true, number(bytes(row.egress), EGRESS)),
-            (show_session, number(human_bytes(row.session.0), MUTED)),
-            (show_session, number(human_bytes(row.session.1), MUTED)),
-            (show_trend, text(&last, TEAL)),
+            (show_second, text(&row.second, t.subtext)),
+            (show_third, text(&row.third, t.subtext)),
+            (true, number(bytes(row.ingress), t.ingress)),
+            (true, number(bytes(row.egress), t.egress)),
+            (show_session, number(human_bytes(row.session.0), t.subtext)),
+            (show_session, number(human_bytes(row.session.1), t.subtext)),
+            (show_trend, text(&last, t.trend)),
         ];
         ratatui::widgets::Row::new(
             cells
@@ -371,21 +369,21 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
     });
 
     let table = Table::new(rows, widths)
-        .header(ratatui::widgets::Row::new(header).style(bold(MUTED)))
+        .header(ratatui::widgets::Row::new(header).style(bold(t.subtext)))
         .column_spacing(2)
         .row_highlight_style(
             Style::new()
-                .bg(SELECTION)
-                .fg(SELECTED_TEXT)
+                .bg(t.accent)
+                .fg(t.base)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol("▌")
+        .highlight_symbol(" ")
         .block(block);
     frame.render_stateful_widget(table, area, &mut app.table);
 }
 
-fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
-    let [detail, keys] = Layout::vertical([Constraint::Min(6), Constraint::Length(10)]).areas(area);
+fn draw_detail(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
+    let [detail, keys] = Layout::vertical([Constraint::Min(6), Constraint::Length(12)]).areas(area);
 
     let title = match app.selected() {
         Some(row) if row.identity.is_some() => "Identity".to_string(),
@@ -396,14 +394,14 @@ fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
         }
         None => "Identity".to_string(),
     };
-    let block = pane(&title, false);
+    let block = pane(t, &title, false);
     let inner = block.inner(detail);
     frame.render_widget(block, detail);
     if let Some(row) = app.selected() {
-        draw_selection(frame, app, row, inner);
+        draw_selection(frame, app, t, row, inner);
     }
 
-    let block = pane("Keys", false);
+    let block = pane(t, "Keys", false);
     let lines: Vec<Line> = [
         ("w", "Window"),
         ("g", "Group by"),
@@ -412,15 +410,17 @@ fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
         ("/", "Filter"),
         ("tab", "Switch pane"),
         ("r", "Refresh history"),
+        ("t", "Theme"),
+        ("b", "Background on/off"),
         ("q", "Quit"),
     ]
     .iter()
     .map(|(key, action)| {
         Line::from(vec![
-            Span::styled(" [", fg(FAINT)),
-            Span::styled(*key, bold(ACCENT)),
-            Span::styled("] ", fg(FAINT)),
-            Span::styled(*action, fg(TEXT)),
+            Span::styled(" [", fg(t.muted)),
+            Span::styled(*key, bold(t.accent)),
+            Span::styled("] ", fg(t.muted)),
+            Span::styled(*action, fg(t.text)),
         ])
     })
     .collect();
@@ -428,23 +428,23 @@ fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// The detail pane's contents for the selected row.
-fn draw_selection(frame: &mut Frame, app: &App, row: &Row, area: Rect) {
+fn draw_selection(frame: &mut Frame, app: &App, t: &Theme, row: &Row, area: Rect) {
     let width = area.width.saturating_sub(2) as usize;
     let field = |label: &str, value: &str| {
         Line::from(vec![
-            Span::styled(format!(" {label:<9}"), fg(MUTED)),
-            Span::styled(fmt::ellipsis(value, width.saturating_sub(9)), fg(TEXT)),
+            Span::styled(format!(" {label:<9}"), fg(t.subtext)),
+            Span::styled(fmt::ellipsis(value, width.saturating_sub(9)), fg(t.text)),
         ])
     };
     let mut lines = vec![Line::styled(
         format!(" {}", fmt::ellipsis(&row.name, width)),
-        bold(ACCENT),
+        bold(t.accent),
     )];
     match row.identity.and_then(|id| app.identities.get(&id)) {
         Some(identity) => {
             lines.push(Line::styled(
                 format!(" {}", fmt::ellipsis(&identity.normalized_cmdline, width)),
-                fg(MUTED),
+                fg(t.subtext),
             ));
             lines.push(Line::default());
             lines.push(field("user", &fmt::user(identity)));
@@ -452,20 +452,20 @@ fn draw_selection(frame: &mut Frame, app: &App, row: &Row, area: Rect) {
             lines.push(field("exe", &fmt::tilde(&identity.exe)));
             lines.push(field("unit", fmt::basename(&identity.unit_or_cgroup)));
             if row.unresolved {
-                lines.push(Line::styled(" exited before it could be read", fg(WARN)));
+                lines.push(Line::styled(" exited before it could be read", fg(t.warn)));
             }
         }
         None => {
             lines.push(Line::styled(
                 format!(" {}", fmt::ellipsis(&row.second, width)),
-                fg(MUTED),
+                fg(t.subtext),
             ));
             lines.push(Line::default());
             for (name, ingress, egress) in row.members.iter().take(6) {
                 lines.push(Line::from(vec![
-                    Span::styled(format!(" {:<12}", fmt::ellipsis(name, 12)), fg(TEXT)),
-                    Span::styled(format!("{:>11}", human_bytes(*ingress)), fg(INGRESS)),
-                    Span::styled(format!("{:>11}", human_bytes(*egress)), fg(EGRESS)),
+                    Span::styled(format!(" {:<12}", fmt::ellipsis(name, 12)), fg(t.text)),
+                    Span::styled(format!("{:>11}", human_bytes(*ingress)), fg(t.ingress)),
+                    Span::styled(format!("{:>11}", human_bytes(*egress)), fg(t.egress)),
                 ]));
             }
         }
@@ -513,18 +513,18 @@ fn draw_selection(frame: &mut Frame, app: &App, row: &Row, area: Rect) {
     .split(charts);
     let unit = if live { "/s" } else { "" };
     for (slot, (label, color, values, now)) in [
-        ("▼ in", INGRESS, &ingress, row.ingress),
-        ("▲ out", EGRESS, &egress, row.egress),
+        ("▼ in", t.ingress, &ingress, row.ingress),
+        ("▲ out", t.egress, &egress, row.egress),
     ]
     .into_iter()
     .enumerate()
     {
         let heading = Line::from(vec![
-            Span::styled(format!(" {label:<6}"), fg(MUTED)),
+            Span::styled(format!(" {label:<6}"), fg(t.subtext)),
             Span::styled(format!("{}{unit}", human_bytes(now)), bold(color)),
         ]);
         let caption =
-            Line::from(Span::styled(format!("{} ", captions[slot]), fg(FAINT))).right_aligned();
+            Line::from(Span::styled(format!("{} ", captions[slot]), fg(t.muted))).right_aligned();
         frame.render_widget(caption, rows[slot * 3]);
         frame.render_widget(heading, rows[slot * 3]);
         let chart = Rect {
@@ -542,30 +542,30 @@ fn draw_selection(frame: &mut Frame, app: &App, row: &Row, area: Rect) {
     }
 }
 
-fn draw_filter(frame: &mut Frame, app: &App, area: Rect) {
-    let block =
-        pane("Filter", app.filtering).title_top(Line::from(hint("esc", "clear")).right_aligned());
+fn draw_filter(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
+    let block = pane(t, "Filter", app.filtering)
+        .title_top(Line::from(hint(t, "esc", "clear")).right_aligned());
     let line = if app.filtering || !app.filter.is_empty() {
         let cursor = if app.filtering { "▏" } else { "" };
         Line::from(vec![
-            Span::styled(" ❯ ", bold(ACCENT)),
-            Span::styled(app.filter.clone(), fg(TEXT)),
-            Span::styled(cursor, fg(ACCENT)),
+            Span::styled(" ❯ ", bold(t.accent)),
+            Span::styled(app.filter.clone(), fg(t.text)),
+            Span::styled(cursor, fg(t.accent)),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" ❯ ", fg(FAINT)),
-            Span::styled("press / to filter by name, project or user", fg(FAINT)),
+            Span::styled(" ❯ ", fg(t.muted)),
+            Span::styled("press / to filter by name, project or user", fg(t.muted)),
         ])
     };
     frame.render_widget(Paragraph::new(line).block(block), area);
 }
 
-fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_status(frame: &mut Frame, app: &App, t: &Theme, area: Rect) {
     let (dot, text) = match (&app.error, &app.live, app.window) {
-        (Some(error), _, _) => (BAD, format!("daemon unreachable: {error}")),
+        (Some(error), _, _) => (t.bad, format!("daemon unreachable: {error}")),
         (None, LiveStatus::Down(reason), Window::Live) => {
-            (WARN, format!("no live traffic: {reason}"))
+            (t.warn, format!("no live traffic: {reason}"))
         }
         (None, _, Window::Live) => {
             let poll = app
@@ -573,10 +573,10 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
                 .map_or("waiting for the daemon".to_string(), |s| {
                     format!("{s:.0}s polls")
                 });
-            (GOOD, format!("live · {poll} · {} rows", app.rows.len()))
+            (t.good, format!("live · {poll} · {} rows", app.rows.len()))
         }
         (None, _, window) => (
-            TEAL,
+            t.trend,
             format!(
                 "history · {} · {} rows",
                 window.label().to_lowercase(),
@@ -586,13 +586,13 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     };
     let left = Line::from(vec![
         Span::styled(" ● ", fg(dot)),
-        Span::styled(text, fg(MUTED)),
+        Span::styled(text, fg(t.subtext)),
     ]);
     let keys = "tab panes · ↑↓ move · enter apply · / filter · q quit ";
     // The key hints give way to a long message. They are styled per span:
     // a style on the line itself would repaint the whole row.
     if left.width() + keys.chars().count() < area.width as usize {
-        let hints = Line::from(Span::styled(keys, fg(FAINT))).right_aligned();
+        let hints = Line::from(Span::styled(keys, fg(t.muted))).right_aligned();
         frame.render_widget(hints, area);
     }
     frame.render_widget(left, area);
@@ -601,6 +601,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::THEMES;
     use crate::tui::tests::app;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -621,6 +622,32 @@ mod tests {
             })
             .collect();
         lines.join("\n")
+    }
+
+    #[test]
+    fn the_theme_paints_the_background_unless_transparent() {
+        let mut app = app(3);
+        let cells = |app: &mut App| {
+            let mut terminal = Terminal::new(TestBackend::new(150, 36)).unwrap();
+            terminal.draw(|frame| draw(frame, app)).unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            // An empty cell inside the table, and the selected row's name.
+            (buffer[(60, 20)].bg, buffer[(30, 5)].bg, buffer[(30, 5)].fg)
+        };
+        let mocha = THEMES[0];
+        assert_eq!(cells(&mut app), (mocha.base, mocha.accent, mocha.base));
+
+        app.on_key(KeyEvent::from(KeyCode::Char('t')));
+        assert_eq!(cells(&mut app).0, THEMES[1].base);
+        assert!(render(&mut app, 190, 36).contains("theme macchiato"));
+
+        app.on_key(KeyEvent::from(KeyCode::Char('b')));
+        assert_eq!(cells(&mut app).0, Color::Reset);
+        assert_eq!(
+            cells(&mut app).1,
+            THEMES[1].accent,
+            "the selection bar stays"
+        );
     }
 
     #[test]
@@ -652,6 +679,8 @@ mod tests {
             "Identity",
             "/usr/bin/firefox",
             "[w] Window",
+            "[t] Theme",
+            "theme mocha",
             "press / to filter",
             "live · 1s polls · 2 rows",
         ] {
