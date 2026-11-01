@@ -56,7 +56,7 @@ jobs:
           rustup default "$RUST_VERSION"
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends protobuf-compiler
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo clippy --workspace --all-targets --locked -- --deny warnings
 
   test:
@@ -71,7 +71,7 @@ jobs:
           rustup default "$RUST_VERSION"
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends protobuf-compiler
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # libduckdb-sys downloads the library into target/duckdb-download. The
       # cache drops that directory but keeps the build script's record of
       # having run, and the link then fails with "unable to find library
@@ -101,7 +101,7 @@ jobs:
             "https://github.com/aya-rs/bpf-linker/releases/download/v$BPF_LINKER_VERSION/bpf-linker-x86_64-unknown-linux-musl.tar.zst"
           echo "$BPF_LINKER_SHA256  $RUNNER_TEMP/bpf-linker.tar.zst" | sha256sum --check
           tar --zstd --extract --file "$RUNNER_TEMP/bpf-linker.tar.zst" --directory "$HOME/.cargo/bin"
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: |
             .
